@@ -25,7 +25,7 @@ jobs:
 
       - name: Build
         run: |
-          export GITHUB_PAGES_BASE=/supabase-pwa/
+          export GITHUB_PAGES_BASE=/NNTime/
           npm run build
 
       - name: Upload artifact
