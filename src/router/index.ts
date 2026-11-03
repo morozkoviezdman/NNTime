@@ -27,21 +27,20 @@ export const router = createRouter({
   routes,
 })
 
-// Переход на /app только если пользователь авторизован
-router.beforeEach((to, _from, next) => {
+// Глобальный guard: загружаем сессию, затем проверяем авторизацию
+router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore()
-  if (to.name === 'app' && !authStore.isAuthenticated) {
-    next({ name: 'login' })
-  } else {
-    next()
-  }
-})
 
-// Хук, который подгружает сессию при старте
-router.beforeEach(async (_to, _from, next) => {
-  const authStore = useAuthStore()
+  // 1. Если сессии ещё нет — загружаем
   if (!authStore.session) {
     await authStore.loadSession()
   }
+
+  // 2. Если переходим на /app и пользователь не авторизован — редирект на /login
+  if (to.name === 'app' && !authStore.isAuthenticated) {
+    next({ name: 'login' })
+    return
+  }
+
   next()
 })
