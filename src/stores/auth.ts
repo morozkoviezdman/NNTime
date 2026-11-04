@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js'
+import type { AuthChangeEvent, Provider, Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/supabaseClient'
 
 export const useAuthStore = defineStore('auth', () => {
@@ -63,6 +63,25 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  // Вход через OAuth (Google, Telegram)
+  async function signInWithOAuth(provider: string) {
+    loading.value = true
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: provider as any,
+        options: {
+          redirectTo: window.location.origin,
+        },
+      })
+      if (error) throw error
+      // Перенаправление происходит на callback Supabase,
+      // после чего сессия автоматически появится в стое.
+      return data
+    } finally {
+      loading.value = false
+    }
+  }
+
   // Выход
   async function signOut() {
     try {
@@ -92,6 +111,7 @@ export const useAuthStore = defineStore('auth', () => {
     loadSession,
     signInWithPassword,
     signUp,
+    signInWithOAuth,
     signOut,
     onAuthStateChange,
   }

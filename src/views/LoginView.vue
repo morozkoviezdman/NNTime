@@ -17,6 +17,14 @@ const switchMode = () => {
   error.value = ''
 }
 
+const signInWithOAuth = async (provider: 'google' | 'telegram') => {
+  try {
+    await authStore.signInWithOAuth(provider)
+  } catch (err: any) {
+    error.value = err.message || 'Ошибка входа через провайдера'
+  }
+}
+
 const handleSubmit = async (e: Event) => {
   e.preventDefault()
   error.value = ''
@@ -74,6 +82,16 @@ onMounted(async () => {
       </form>
 
       <p v-if="error" class="error">{{ error }}</p>
+
+      <div class="oauth-buttons">
+        <p>Или войдите через:</p>
+        <button type="button" class="oauth-btn" @click="signInWithOAuth('google')">
+          <span class="oauth-icon">🔍</span> Google
+        </button>
+        <button type="button" class="oauth-btn" @click="signInWithOAuth('telegram')">
+          <span class="oauth-icon">💬</span> Telegram
+        </button>
+      </div>
 
       <p class="switch">
         {{ mode === 'login' ? 'Нет аккаунта?' : 'Уже есть аккаунт?' }}
@@ -161,6 +179,43 @@ onMounted(async () => {
   border: 1px solid #fecaca;
   border-radius: 6px;
   padding: 8px 10px;
+}
+
+.oauth-buttons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 12px;
+}
+.oauth-buttons p {
+  color: #4b5563;
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.oauth-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.oauth-btn:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+.oauth-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.oauth-icon {
+  font-size: 18px;
 }
 
 .switch {
