@@ -1,11 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
-import { getWorkLogs, getSettings, updateSettings } from '@/utils/db'
+import { getWorkLogs, getSettings } from '@/utils/db'
 import type { SettingsRow } from '@/utils/db'
 
-const authStore = useAuthStore()
 const router = useRouter()
 
 const logs = ref<any[]>([])
@@ -18,16 +16,6 @@ const periodError = ref('')
 const totalOvertime = ref(0)
 const totalRecords = ref(0)
 const totalDays = ref(0)
-
-const totalHours = computed(() => Math.floor(totalOvertime.value / 60))
-const totalMinLeft = computed(() => totalOvertime.value % 60)
-
-const formatDateDisplay = (dateStr: string | null | undefined) => {
-  if (!dateStr) return '—'
-  const parts = dateStr.split('-')
-  if (parts.length !== 3) return dateStr
-  return `${parts[2]}.${parts[1]}.${parts[0]}`
-}
 
 const loadSettings = async () => {
   try {
@@ -61,22 +49,6 @@ const loadLogs = async () => {
     error.value = e.message || 'Не удалось загрузить данные'
   } finally {
     loading.value = false
-  }
-}
-
-const saveSettings = async () => {
-  if (!settings.value) return
-  try {
-    await updateSettings({
-      id: settings.value.id,
-      end_of_shift_hour: settings.value.end_of_shift_hour,
-      period_start: periodStart.value ?? '0001-01-01',
-      period_end: periodEnd.value ?? '9999-12-31',
-    })
-    await loadSettings()
-    await loadLogs()
-  } catch (e: any) {
-    error.value = e.message || 'Не удалось сохранить настройки'
   }
 }
 
