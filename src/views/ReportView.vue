@@ -2,7 +2,12 @@
 import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+<<<<<<< HEAD
 import { getWorkLogs, getSettings, updateSettings } from '@/utils/db'
+=======
+import { supabase } from '@/supabaseClient'
+import { getWorkLogs, getPeriodOvertime, getSettings, updateSettings, toLocalDateString } from '@/utils/db'
+>>>>>>> origin/main
 import type { SettingsRow } from '@/utils/db'
 
 const authStore = useAuthStore()
@@ -71,8 +76,13 @@ const saveSettings = async () => {
     await updateSettings({
       id: settings.value.id,
       end_of_shift_hour: settings.value.end_of_shift_hour,
+<<<<<<< HEAD
       period_start: periodStart.value ?? '0001-01-01',
       period_end: periodEnd.value ?? '9999-12-31',
+=======
+      period_start: periodStart.value,
+      period_end: periodEnd.value,
+>>>>>>> origin/main
     })
     periodError.value = ''
   } catch (e: any) {

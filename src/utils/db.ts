@@ -123,5 +123,9 @@ export async function updateSettings(updates: Partial<SettingsRow>) {
     )
 
   if (error) throw error
+<<<<<<< HEAD
   return data
+=======
+  return data as SettingsRow
+>>>>>>> origin/main
 }
