@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { supabase } from '@/supabaseClient'
-import { getWorkLogs } from '@/utils/db'
+import { getWorkLogs, getPeriodOvertime, getSettings, updateSettings, toLocalDateString } from '@/utils/db'
 import type { SettingsRow } from '@/utils/db'
 
 const authStore = useAuthStore()
@@ -18,13 +18,22 @@ const periodStart = ref<string | null>(null)
 const periodEnd = ref<string | null>(null)
 const periodError = ref('')
 const totalOvertime = ref(0)
+const totalRecords = ref(0)
+const totalDays = ref(0)
+
+const totalHours = computed(() => Math.floor(totalOvertime.value / 60))
+const totalMinLeft = computed(() => totalOvertime.value % 60)
+
+const formatDateDisplay = (dateStr: string | null | undefined) => {
+  if (!dateStr) return '—'
+  const parts = dateStr.split('-')
+  if (parts.length !== 3) return dateStr
+  return `${parts[2]}.${parts[1]}.${parts[0]}`
+}
 
 const loadSettings = async () => {
   try {
-    const { data } = await supabase
-      .from('settings')
-      .select('*')
-      .single()
+    const data = await getSettings()
     if (data) {
       settings.value = data
       periodStart.value = data.period_start
@@ -45,6 +54,11 @@ const loadLogs = async () => {
       press_time: new Date(r.press_time),
       overtime_minutes: Number(r.overtime_minutes),
     }))
+    const totalMinutes = logs.value.reduce((sum, log) => sum + (log.overtime_minutes ?? 0), 0)
+    const days = new Set(logs.value.map(l => l.date)).size
+    totalOvertime.value = totalMinutes
+    totalRecords.value = logs.value.length
+    totalDays.value = days
   } catch (e: any) {
     error.value = e.message || 'Не удалось загрузить данные'
   } finally {
@@ -55,24 +69,13 @@ const loadLogs = async () => {
 const saveSettings = async () => {
   if (!settings.value) return
   try {
-    const { error: upsertError } = await supabase
-      .from('settings')
-      .upsert(
-        {
-          id: settings.value.id,
-          end_of_shift_hour: settings.value.end_of_shift_hour,
-          period_start: periodStart.value ?? settings.value.period_start,
-          period_end: periodEnd.value ?? settings.value.period_end,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'id' }
-      )
-
-    if (upsertError) {
-      periodError.value = upsertError.message || 'Ошибка сохранения'
-    } else {
-      periodError.value = ''
-    }
+    await updateSettings({
+      id: settings.value.id,
+      end_of_shift_hour: settings.value.end_of_shift_hour,
+      period_start: periodStart.value,
+      period_end: periodEnd.value,
+    })
+    periodError.value = ''
   } catch (e: any) {
     periodError.value = e.message || 'Ошибка сохранения'
   }
@@ -133,14 +136,16 @@ onMounted(async () => {
       </div>
 
       <div class="summary" v-if="settings">
-        <div>Период: {{ periodStart }} → {{ periodEnd }}</div>
+        <div>Период: {{ formatDateDisplay(periodStart) }} → {{ formatDateDisplay(periodEnd) }}</div>
         <div>Норма: {{ settings.end_of_shift_hour }}:00</div>
-        <div class="summary-total">Сверхнорма: {{ totalOvertime }} м</div>
+        <div>Всего записей: {{ totalRecords }}</div>
+        <div>Сверхнорма: {{ totalHours }} ч {{ totalMinLeft }} м</div>
+        <div>Дней с записями: {{ totalDays }}</div>
       </div>
 
       <div class="logs-list">
         <div class="log-row" v-for="log in logs" :key="log.id">
-          <div class="log-date">{{ log.date }}</div>
+          <div class="log-date">{{ formatDateDisplay(log.date) }}</div>
           <div class="log-time">{{ log.press_time?.toLocaleString() }}</div>
           <div class="log-overtime">{{ log.overtime_minutes }} м</div>
           <div class="log-note">{{ log.note ?? '—' }}</div>
