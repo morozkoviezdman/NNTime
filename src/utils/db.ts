@@ -125,3 +125,17 @@ export async function updateSettings(updates: Partial<SettingsRow>) {
   if (error) throw error
   return data
 }
+
+/** Обновить комментарий (note) по id записи */
+export async function updateNote(id: string, note: string) {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Нет сессии')
+
+  const { error } = await supabase
+    .from('work_logs')
+    .update({ note, updated_at: new Date().toISOString() })
+    .eq('id', id)
+
+  if (error) throw error
+  return { success: true }
+}
