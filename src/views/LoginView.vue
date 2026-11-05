@@ -17,7 +17,7 @@ const switchMode = () => {
   error.value = ''
 }
 
-const signInWithOAuth = async (provider: 'google' | 'telegram') => {
+const signInWithOAuth = async (provider: 'google') => {
   try {
     await authStore.signInWithOAuth(provider)
   } catch (err: any) {
@@ -87,9 +87,6 @@ onMounted(async () => {
         <p>Или войдите через:</p>
         <button type="button" class="oauth-btn" @click="signInWithOAuth('google')">
           <span class="oauth-icon">🔍</span> Google
-        </button>
-        <button type="button" class="oauth-btn" @click="signInWithOAuth('telegram')">
-          <span class="oauth-icon">💬</span> Telegram
         </button>
       </div>
 

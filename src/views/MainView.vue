@@ -40,8 +40,8 @@ const editingId = ref<string | null>(null)
 const reportOpen = ref(false)
 
 const recordButtonText = ref('Зафиксировать')
-const classNameSave = computed(() => recordButtonText.value === 'Обновлено' ? 'main-record-btn-main-blue' : 'save-btn-default')
-const classNameRecord = computed(() => recordButtonText.value === 'Обновлено' ? 'main-record-btn-main-blue' : 'main-record-btn-default')
+const classNameSave = computed(() => saveButtonGreen.value ? 'save-btn-green' : 'save-btn-default')
+const classNameRecord = computed(() => recordButtonText.value === 'Обновлено' ? 'main-record-btn-green' : 'main-record-btn-default')
 const recordingTimeout = ref<number | null>(null)
 const saveButtonText = ref('Сохранить')
 const saveButtonGreen = ref(false)
@@ -288,14 +288,16 @@ onMounted(async () => {
           <span class="time-colon">:</span>
           <input type="number" v-model.number="overtimeMinutes" min="0" max="59" placeholder="Минуты" />
         </div>
-        <button class="save-btn" @click="saveSettings" :disabled="loading" :class="[classNameSave, { 'save-btn-green': saveButtonGreen }]">{{ saveButtonText }}</button>
+        <button class="save-btn" @click="saveSettings" :disabled="loading" :class="[classNameSave, { 'save-btn-green': saveButtonGreen }]">
+          {{ loading ? 'Сохраняю...' : saveButtonText }}
+        </button>
       </div>
     </section>
 
     <div class="record-center">
       <button class="main-record-btn" @click="emitRecord" :disabled="loading" :class="[classNameRecord, { 'main-record-btn-green': recordButtonText === 'Обновлено' }]">
         <span v-if="!loading">{{ recordButtonText }}</span>
-        <span v-else>сохраняю...</span>
+        <span v-else style="display:none">{{ recordButtonText }}</span>
       </button>
     </div>
 
