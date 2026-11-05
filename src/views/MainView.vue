@@ -41,6 +41,8 @@ const reportOpen = ref(false)
 
 const recordButtonText = ref('Зафиксировать')
 const recordingTimeout = ref<number | null>(null)
+const saveButtonText = ref('Сохранить')
+const saveButtonGreen = ref(false)
 
 const showToast = (msg: string) => {
   toast.value = msg
@@ -80,11 +82,11 @@ const loadSettings = async () => {
       settings.value = data
       overtimeHours.value = data.end_of_shift_hour ?? 18
       overtimeMinutes.value = data.end_of_shift_minute ?? 0
-      const startDefault = new Date(today)
-      startDefault.setDate(today.getDate() - 365)
-      const endDefault = new Date()
-      const startVal = data.period_start && data.period_start.trim() ? data.period_start : formatDateForInput(startDefault)
-      const endVal = data.period_end && data.period_end.trim() ? data.period_end : formatDateForInput(endDefault)
+      const startDefault2 = new Date(today)
+      startDefault2.setDate(today.getDate() - 365)
+      const endDefault2 = new Date()
+      const startVal = data.period_start && data.period_start.trim() ? data.period_start : formatDateForInput(startDefault2)
+      const endVal = data.period_end && data.period_end.trim() ? data.period_end : formatDateForInput(endDefault2)
       periodStart.value = startVal
       periodEnd.value = endVal
     } else {
@@ -143,6 +145,12 @@ const saveSettings = async () => {
     })
     await loadPeriodOvertime()
     showToast('Настройки сохранены')
+    saveButtonText.value = 'Обновлено'
+    saveButtonGreen.value = true
+    setTimeout(() => {
+      saveButtonText.value = 'Сохранить'
+      saveButtonGreen.value = false
+    }, 3000)
   } catch (e: any) {
     error.value = e.message || 'Ошибка сохранения'
   } finally {
@@ -223,6 +231,16 @@ const printReport = () => {
   showToast('Печать запущена')
 }
 
+const logout = async () => {
+  try {
+    await authStore.signOut()
+    router.push('/')
+    showToast('Вы вышли из аккаунта')
+  } catch (e) {
+    showToast('Ошибка выхода')
+  }
+}
+
 onMounted(async () => {
   await authStore.loadSession()
   if (!authStore.isAuthenticated) {
@@ -243,6 +261,9 @@ onMounted(async () => {
         <span class="user-name">{{ authStore.user?.email ?? 'Пользователь' }}</span>
         <span class="user-role">Администратор</span>
       </div>
+      <button class="logout-btn" @click="logout" title="Нажмите чтобы выйти с данного аккаунта">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y1="12"/></svg>
+      </button>
     </section>
 
     <section class="overtime-block">
@@ -265,13 +286,13 @@ onMounted(async () => {
           <span class="time-colon">:</span>
           <input type="number" v-model.number="overtimeMinutes" min="0" max="59" placeholder="Минуты" />
         </div>
-        <button class="save-btn" @click="saveSettings" :disabled="loading">Сохранить</button>
+        <button class="save-btn" @click="saveSettings" :disabled="loading" :class="{ 'save-btn-green': saveButtonGreen }">{{ saveButtonText }}</button>
       </div>
     </section>
 
     <div class="record-center">
-      <button class="main-record-btn" @click="emitRecord" :disabled="loading">
-        <span v-if="!loading">+ {{ recordButtonText }}</span>
+      <button class="main-record-btn" @click="emitRecord" :disabled="loading" :class="['main-record-btn-default', { 'main-record-btn-green': recordButtonText === 'Обновлено' }]">
+        <span v-if="!loading">{{ recordButtonText }}</span>
         <span v-else>сохраняю...</span>
       </button>
     </div>
@@ -314,7 +335,6 @@ onMounted(async () => {
                   <template v-else>
                     <span class="note-text">{{ log.note ?? '—' }}</span>
                     <button class="edit-btn" @click="startEdit(log)">Редактировать</button>
-                  </template>
                 </td>
                 <td>
                   <button class="print-btn" @click="printReport">Печать</button>
@@ -332,7 +352,6 @@ onMounted(async () => {
       </div>
     </div>
   </div>
-</template>
 
 <style scoped>
 .screen.main {
@@ -355,6 +374,7 @@ onMounted(async () => {
   border-radius: 14px;
   padding: 16px 20px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+  text-align: center;
 }
 
 .user-avatar {
@@ -373,6 +393,7 @@ onMounted(async () => {
 .user-info {
   flex: 1;
   min-width: 0;
+  text-align: center;
 }
 
 .user-name {
@@ -387,12 +408,32 @@ onMounted(async () => {
   color: #6b7280;
 }
 
+.logout-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: #f3f4f6;
+  color: #6b7280;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.logout-btn:hover {
+  background: #e5e7eb;
+  color: #1a1d21;
+}
+
 .overtime-block {
   background: #ffffff;
   border: 1px solid #e5e8ef;
   border-radius: 14px;
   padding: 20px 24px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+  text-align: center;
 }
 
 .overtime-title {
@@ -400,6 +441,7 @@ onMounted(async () => {
   font-weight: 600;
   color: #555b66;
   margin-bottom: 4px;
+  text-align: center;
 }
 
 .overtime-value {
@@ -407,6 +449,7 @@ onMounted(async () => {
   font-weight: 700;
   color: #2563eb;
   margin-bottom: 16px;
+  text-align: center;
 }
 
 .period-row {
@@ -509,6 +552,15 @@ onMounted(async () => {
   background: #1d4ed8;
 }
 
+.save-btn-green {
+  background: #16a34a !important;
+  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
+}
+
+.save-btn-green:hover {
+  background: #15803d !important;
+}
+
 .save-btn:disabled {
   opacity: 0.6;
   cursor: wait;
@@ -519,7 +571,7 @@ onMounted(async () => {
   justify-content: center;
 }
 
-.main-record-btn {
+.main-record-btn-default {
   width: 400px;
   height: 400px;
   border-radius: 200px;
@@ -532,22 +584,17 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.3s;
   box-shadow: 0 8px 24px rgba(37, 99, 235, 0.35);
 }
 
-.main-record-btn:hover:not(:disabled) {
-  transform: scale(1.05);
-  box-shadow: 0 10px 28px rgba(37, 99, 235, 0.45);
+.main-record-btn-green {
+  background: #16a34a !important;
+  box-shadow: 0 8px 24px rgba(22, 163, 74, 0.35);
 }
 
-.main-record-btn:active:not(:disabled) {
-  transform: scale(0.96);
-}
-
-.main-record-btn:disabled {
-  opacity: 0.7;
-  cursor: wait;
+.main-record-btn-green:hover {
+  background: #15803d !important;
 }
 
 .results-block {
@@ -556,6 +603,11 @@ onMounted(async () => {
 }
 
 .report-btn {
+  margin: 0 auto;
+  display: block;
+  max-width: 400px;
+  margin-left: auto;
+  margin-right: auto;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -595,7 +647,7 @@ onMounted(async () => {
 
 .report-modal-content {
   width: 100%;
-  max-width: 600px;
+  max-width: 670px;
   max-height: 90vh;
   background: #ffffff;
   border-radius: 16px;
@@ -754,7 +806,7 @@ onMounted(async () => {
 
 .print-action-btn {
   padding: 10px 20px;
-  background: #166534;
+  background: #16a34a;
   color: #ffffff;
   border: none;
   border-radius: 10px;
@@ -765,7 +817,7 @@ onMounted(async () => {
 }
 
 .print-action-btn:hover {
-  background: #14532d;
+  background: #15803d;
 }
 
 .close-action-btn {
