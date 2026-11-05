@@ -6,6 +6,7 @@
 -- Таблица настроек проекта (один row)
 CREATE TABLE IF NOT EXISTS settings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   end_of_shift_hour smallint NOT NULL DEFAULT 18,  -- окончание смены (по норме)
   end_of_shift_minute smallint NOT NULL DEFAULT 0, -- минуты окончания смены
   period_start date NOT NULL,                       -- начало периода отчёта
