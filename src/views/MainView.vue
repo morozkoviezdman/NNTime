@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { getSettings, getPeriodOvertime, updateSettings, getWorkLogs, deleteWorkLog, updateNote, recordWorkSession } from '@/utils/db'
@@ -40,6 +40,8 @@ const editingId = ref<string | null>(null)
 const reportOpen = ref(false)
 
 const recordButtonText = ref('Зафиксировать')
+const classNameSave = computed(() => recordButtonText.value === 'Обновлено' ? 'main-record-btn-main-blue' : 'save-btn-default')
+const classNameRecord = computed(() => recordButtonText.value === 'Обновлено' ? 'main-record-btn-main-blue' : 'main-record-btn-default')
 const recordingTimeout = ref<number | null>(null)
 const saveButtonText = ref('Сохранить')
 const saveButtonGreen = ref(false)
@@ -262,7 +264,7 @@ onMounted(async () => {
         <span class="user-role">Администратор</span>
       </div>
       <button class="logout-btn" @click="logout" title="Нажмите чтобы выйти с данного аккаунта">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y1="12"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
       </button>
     </section>
 
@@ -286,12 +288,12 @@ onMounted(async () => {
           <span class="time-colon">:</span>
           <input type="number" v-model.number="overtimeMinutes" min="0" max="59" placeholder="Минуты" />
         </div>
-        <button class="save-btn" @click="saveSettings" :disabled="loading" :class="{ 'save-btn-green': saveButtonGreen }">{{ saveButtonText }}</button>
+        <button class="save-btn" @click="saveSettings" :disabled="loading" :class="[classNameSave, { 'save-btn-green': saveButtonGreen }]">{{ saveButtonText }}</button>
       </div>
     </section>
 
     <div class="record-center">
-      <button class="main-record-btn" @click="emitRecord" :disabled="loading" :class="['main-record-btn-default', { 'main-record-btn-green': recordButtonText === 'Обновлено' }]">
+      <button class="main-record-btn" @click="emitRecord" :disabled="loading" :class="[classNameRecord, { 'main-record-btn-green': recordButtonText === 'Обновлено' }]">
         <span v-if="!loading">{{ recordButtonText }}</span>
         <span v-else>сохраняю...</span>
       </button>
@@ -335,6 +337,7 @@ onMounted(async () => {
                   <template v-else>
                     <span class="note-text">{{ log.note ?? '—' }}</span>
                     <button class="edit-btn" @click="startEdit(log)">Редактировать</button>
+                  </template>
                 </td>
                 <td>
                   <button class="print-btn" @click="printReport">Печать</button>
@@ -352,6 +355,8 @@ onMounted(async () => {
       </div>
     </div>
   </div>
+
+</template>
 
 <style scoped>
 .screen.main {
