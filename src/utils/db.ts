@@ -108,6 +108,7 @@ export async function getSettings(): Promise<SettingsRow | null> {
   const { data, error } = await supabase
     .from('settings')
     .select('*')
+    .eq('user_id', session.user.id)
     .maybeSingle()
 
   if (error) throw error
@@ -124,13 +125,15 @@ export async function updateSettings(updates: Partial<SettingsRow>) {
   const endOfDayMinute = updates.end_of_shift_minute ?? 0
   const periodStart = updates.period_start ?? '0001-01-01'
   const periodEnd = updates.period_end ?? '9999-12-31'
-  const id = updates.id ?? crypto.randomUUID()
+  const userId = session.user.id
+  const id = updates.id ?? `${userId}-settings`
 
   const { data, error } = await supabase
     .from('settings')
     .upsert(
       {
         id,
+        user_id: userId,
         end_of_shift_hour: endOfDayHour,
         end_of_shift_minute: endOfDayMinute,
         period_start: periodStart,
