@@ -20,8 +20,23 @@ export async function getWorkLogs() {
   return data as WorkLogEntry[]
 }
 
+/** Удалить запись по id */
+export async function deleteWorkLog(id: string) {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Нет сессии')
+
+  const { error } = await supabase
+    .from('work_logs')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', session.user.id)
+
+  if (error) throw error
+  return { success: true }
+}
+
 /** Записать конец смены (создать новую запись). */
-export async function recordWorkSession(endOfDayHour: number = 18) {
+export async function recordWorkSession(endOfDayHour: number = 18, endOfDayMinute: number = 0) {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Не авторизован. Сначала войдите через экран логина.')
 
@@ -29,7 +44,7 @@ export async function recordWorkSession(endOfDayHour: number = 18) {
   if (!user) throw new Error('Не удалось получить данные пользователя.')
 
   const now = new Date()
-  const overtimeMinutes = calculateOvertimeMinutes(now, endOfDayHour)
+  const overtimeMinutes = calculateOvertimeMinutes(now, endOfDayHour, endOfDayMinute)
 
   const { error } = await supabase.from('work_logs').insert({
     user_id: user.id,
@@ -44,9 +59,10 @@ export async function recordWorkSession(endOfDayHour: number = 18) {
 }
 
 /** Вычислить сверхнормативное время (в минутах). */
-export function calculateOvertimeMinutes(pressTime: Date, endOfDayHour: number = 18): number {
-  const local = pressTime.getHours() * 60 + pressTime.getMinutes()
-  const diff = local - endOfDayHour * 60
+export function calculateOvertimeMinutes(pressTime: Date, endOfDayHour: number = 18, endOfDayMinute: number = 0): number {
+  const localMinutes = pressTime.getHours() * 60 + pressTime.getMinutes()
+  const thresholdMinutes = endOfDayHour * 60 + endOfDayMinute
+  const diff = localMinutes - thresholdMinutes
   return diff > 0 ? Math.floor(diff) : 0
 }
 
@@ -105,6 +121,7 @@ export async function updateSettings(updates: Partial<SettingsRow>) {
 
   const now = new Date().toISOString()
   const endOfDayHour = updates.end_of_shift_hour ?? 18
+  const endOfDayMinute = updates.end_of_shift_minute ?? 0
   const periodStart = updates.period_start ?? '0001-01-01'
   const periodEnd = updates.period_end ?? '9999-12-31'
   const id = updates.id ?? crypto.randomUUID()
@@ -115,6 +132,7 @@ export async function updateSettings(updates: Partial<SettingsRow>) {
       {
         id,
         end_of_shift_hour: endOfDayHour,
+        end_of_shift_minute: endOfDayMinute,
         period_start: periodStart,
         period_end: periodEnd,
         updated_at: now,

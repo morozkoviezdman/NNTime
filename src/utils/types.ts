@@ -7,6 +7,7 @@ export type Database = {
       settings: {
         Row: {
           end_of_shift_hour: number
+          end_of_shift_minute: number
           id: string
           period_end: string
           period_start: string

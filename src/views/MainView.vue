@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { getSettings, getPeriodOvertime, updateSettings, getWorkLogs, updateNote, recordWorkSession } from '@/utils/db'
+import { getSettings, getPeriodOvertime, updateSettings, getWorkLogs, deleteWorkLog, updateNote, recordWorkSession } from '@/utils/db'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -14,9 +14,20 @@ const toastVisible = ref(false)
 const toastTimer = ref<number | null>(null)
 
 const settings = ref<any>(null)
-const normHours = ref(18)
-const periodStart = ref<string>('')
-const periodEnd = ref<string>('')
+const overtimeHours = ref(18)
+const overtimeMinutes = ref(0)
+const today = new Date()
+const startDefault = new Date(today)
+startDefault.setDate(today.getDate() - 365)
+const endDefault = new Date()
+const formatDateForInput = (d: Date) => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+const periodStart = ref<string>(formatDateForInput(startDefault))
+const periodEnd = ref<string>(formatDateForInput(endDefault))
 
 const totalMinutes = ref(0)
 const totalHours = ref(0)
@@ -28,6 +39,9 @@ const currentNote = ref('')
 const editingId = ref<string | null>(null)
 const reportOpen = ref(false)
 
+const recordButtonText = ref('Зафиксировать')
+const recordingTimeout = ref<number | null>(null)
+
 const showToast = (msg: string) => {
   toast.value = msg
   toastVisible.value = true
@@ -36,13 +50,6 @@ const showToast = (msg: string) => {
     toast.value = ''
     toastVisible.value = false
   }, 2500)
-}
-
-const formatDateForInput = (d: Date) => {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
 }
 
 const formatDateDisplay = (dateStr: string) => {
@@ -71,23 +78,29 @@ const loadSettings = async () => {
     const today = new Date()
     if (data) {
       settings.value = data
-      normHours.value = data.end_of_shift_hour ?? 18
+      overtimeHours.value = data.end_of_shift_hour ?? 18
+      overtimeMinutes.value = data.end_of_shift_minute ?? 0
       const startDefault = new Date(today)
       startDefault.setDate(today.getDate() - 365)
       const endDefault = new Date()
-      periodStart.value = data.period_start ?? formatDateForInput(startDefault)
-      periodEnd.value = data.period_end ?? formatDateForInput(endDefault)
+      const startVal = data.period_start && data.period_start.trim() ? data.period_start : formatDateForInput(startDefault)
+      const endVal = data.period_end && data.period_end.trim() ? data.period_end : formatDateForInput(endDefault)
+      periodStart.value = startVal
+      periodEnd.value = endVal
     } else {
-      const startDefault = new Date(today)
-      startDefault.setDate(today.getDate() - 365)
-      const endDefault = new Date()
+      const startDefault2 = new Date(today)
+      startDefault2.setDate(today.getDate() - 365)
+      const endDefault2 = new Date()
       settings.value = {
         id: crypto.randomUUID(),
-        end_of_shift_hour: normHours.value,
-        period_start: formatDateForInput(startDefault),
-        period_end: formatDateForInput(endDefault),
+        end_of_shift_hour: overtimeHours.value,
+        end_of_shift_minute: overtimeMinutes.value,
+        period_start: formatDateForInput(startDefault2),
+        period_end: formatDateForInput(endDefault2),
         updated_at: new Date().toISOString(),
       }
+      periodStart.value = formatDateForInput(startDefault2)
+      periodEnd.value = formatDateForInput(endDefault2)
       await updateSettings(settings.value)
     }
   } catch (e: any) {
@@ -123,7 +136,8 @@ const saveSettings = async () => {
     const { id } = settings.value as any
     await updateSettings({
       id: id || crypto.randomUUID(),
-      end_of_shift_hour: normHours.value,
+      end_of_shift_hour: overtimeHours.value,
+      end_of_shift_minute: overtimeMinutes.value,
       period_start: periodStart.value,
       period_end: periodEnd.value,
     })
@@ -140,15 +154,23 @@ const emitRecord = async () => {
   error.value = ''
   let addedMinutes = 0
   try {
-    addedMinutes = await recordWorkSession(normHours.value)
+    loading.value = true
+    recordButtonText.value = 'Обновлено'
+    addedMinutes = await recordWorkSession(overtimeHours.value, overtimeMinutes.value)
     const msg = addedMinutes >= 60 ? `Добавлено ${Math.floor(addedMinutes / 60)} ч ${addedMinutes % 60} м` : `Добавлено ${addedMinutes} м`
     showToast(msg)
     if (periodStart.value && periodEnd.value) {
       await loadPeriodOvertime()
       await loadWorkLogs()
     }
+    if (recordingTimeout.value) clearTimeout(recordingTimeout.value)
+    recordingTimeout.value = window.setTimeout(() => {
+      recordButtonText.value = 'Зафиксировать'
+    }, 3000)
   } catch (e: any) {
     error.value = e.message || 'Ошибка записи'
+  } finally {
+    loading.value = false
   }
 }
 
@@ -186,6 +208,16 @@ const saveEdit = async () => {
   }
 }
 
+const deleteLog = async (log: any) => {
+  try {
+    await deleteWorkLog(log.id)
+    await loadWorkLogs()
+    showToast('Запись удалена')
+  } catch (e: any) {
+    error.value = e.message || 'Ошибка удаления'
+  }
+}
+
 const printReport = () => {
   window.print()
   showToast('Печать запущена')
@@ -205,7 +237,6 @@ onMounted(async () => {
 
 <template>
   <div class="screen main">
-    <!-- User block -->
     <section class="user-block">
       <div class="user-avatar">{{ (authStore.user?.email ?? 'Пользователь').charAt(0) }}</div>
       <div class="user-info">
@@ -214,9 +245,9 @@ onMounted(async () => {
       </div>
     </section>
 
-    <!-- Overtime norm block -->
     <section class="overtime-block">
-      <div class="overtime-title">Сверхнормативно отработано за период всего: {{ totalHours }}:{{ String(totalMinLeft).padStart(2, '0') }}</div>
+      <div class="overtime-title">Сверхнормативно отработано за период всего (чч:мм)</div>
+      <div class="overtime-value">{{ totalHours }}:{{ String(totalMinLeft).padStart(2, '0') }}</div>
 
       <div class="period-row">
         <span class="period-label">Период</span>
@@ -230,20 +261,21 @@ onMounted(async () => {
       <div class="time-row">
         <span class="time-label">Время после которого начинается переработка</span>
         <div class="time-inputs">
-          <input type="number" v-model.number="normHours" min="0" max="23" />
-          <span>:00</span>
+          <input type="number" v-model.number="overtimeHours" min="0" max="23" placeholder="Часы" />
+          <span class="time-colon">:</span>
+          <input type="number" v-model.number="overtimeMinutes" min="0" max="59" placeholder="Минуты" />
         </div>
         <button class="save-btn" @click="saveSettings" :disabled="loading">Сохранить</button>
       </div>
     </section>
 
-    <!-- Main record button -->
-    <button class="main-record-btn" @click="emitRecord" :disabled="loading">
-      <span v-if="!loading">+ Зафиксировать</span>
-      <span v-else>сохраняю...</span>
-    </button>
+    <div class="record-center">
+      <button class="main-record-btn" @click="emitRecord" :disabled="loading">
+        <span v-if="!loading">+ {{ recordButtonText }}</span>
+        <span v-else>сохраняю...</span>
+      </button>
+    </div>
 
-    <!-- Results block -->
     <section class="results-block">
       <button class="report-btn" @click="openReport">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -251,7 +283,6 @@ onMounted(async () => {
       </button>
     </section>
 
-    <!-- Report modal -->
     <div v-if="reportOpen" class="report-modal" @click.self="closeReport">
       <div class="report-modal-content">
         <div class="report-modal-header">
@@ -287,7 +318,7 @@ onMounted(async () => {
                 </td>
                 <td>
                   <button class="print-btn" @click="printReport">Печать</button>
-                  <button class="close-btn" @click="closeReport">✕</button>
+                  <button class="close-btn" @click="deleteLog(log)">✕</button>
                 </td>
               </tr>
             </tbody>
@@ -304,7 +335,6 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* ── Layout ─────────────────────────────────────────────── */
 .screen.main {
   min-height: 100vh;
   display: flex;
@@ -316,7 +346,6 @@ onMounted(async () => {
   margin: 0 auto;
 }
 
-/* ── User block ─────────────────────────────────────────── */
 .user-block {
   display: flex;
   align-items: center;
@@ -358,7 +387,6 @@ onMounted(async () => {
   color: #6b7280;
 }
 
-/* ── Overtime norm block ────────────────────────────────── */
 .overtime-block {
   background: #ffffff;
   border: 1px solid #e5e8ef;
@@ -369,8 +397,15 @@ onMounted(async () => {
 
 .overtime-title {
   font-size: 16px;
+  font-weight: 600;
+  color: #555b66;
+  margin-bottom: 4px;
+}
+
+.overtime-value {
+  font-size: 32px;
   font-weight: 700;
-  color: #1a1d21;
+  color: #2563eb;
   margin-bottom: 16px;
 }
 
@@ -453,6 +488,11 @@ onMounted(async () => {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
+.time-colon {
+  color: #9ca3af;
+  font-weight: 700;
+}
+
 .save-btn {
   padding: 10px 20px;
   background: #2563eb;
@@ -474,23 +514,26 @@ onMounted(async () => {
   cursor: wait;
 }
 
-/* ── Main record button ─────────────────────────────────── */
+.record-center {
+  display: flex;
+  justify-content: center;
+}
+
 .main-record-btn {
-  width: 120px;
-  height: 120px;
+  width: 400px;
+  height: 400px;
   border-radius: 200px;
   background: #2563eb;
   color: #ffffff;
   border: none;
   cursor: pointer;
-  font-size: 22px;
+  font-size: 32px;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: transform 0.12s ease, box-shadow 0.12s ease;
   box-shadow: 0 8px 24px rgba(37, 99, 235, 0.35);
-  margin: 0 auto;
 }
 
 .main-record-btn:hover:not(:disabled) {
@@ -507,9 +550,9 @@ onMounted(async () => {
   cursor: wait;
 }
 
-/* ── Results block ──────────────────────────────────────── */
 .results-block {
   margin-top: 24px;
+  text-align: center;
 }
 
 .report-btn {
@@ -539,7 +582,6 @@ onMounted(async () => {
   color: #2563eb;
 }
 
-/* ── Report modal ───────────────────────────────────────── */
 .report-modal {
   position: fixed;
   inset: 0;
@@ -599,7 +641,7 @@ onMounted(async () => {
 }
 
 .report-table-wrap {
-  overflow-x: auto;
+  overflow-y: auto;
   padding: 16px 24px;
 }
 
@@ -700,26 +742,6 @@ onMounted(async () => {
   border-color: #9ca3af;
 }
 
-.close-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  border: none;
-  background: #f3f4f6;
-  color: #6b7280;
-  font-size: 18px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.2s;
-}
-
-.close-btn:hover {
-  background: #e5e7eb;
-  color: #1a1d21;
-}
-
 .report-footer {
   display: flex;
   justify-content: flex-end;
@@ -746,11 +768,6 @@ onMounted(async () => {
   background: #14532d;
 }
 
-.print-action-btn:disabled {
-  opacity: 0.6;
-  cursor: wait;
-}
-
 .close-action-btn {
   padding: 10px 20px;
   background: #6b7280;
@@ -767,7 +784,57 @@ onMounted(async () => {
   background: #4b5563;
 }
 
-/* ── Responsive ─────────────────────────────────────────── */
+@media print {
+  .screen.main {
+    max-width: 100%;
+    padding: 0;
+  }
+
+  .user-block,
+  .overtime-block,
+  .results-block,
+  .report-btn,
+  .main-record-btn {
+    display: none !important;
+  }
+
+  .report-modal {
+    background: #ffffff;
+    position: static;
+    display: block;
+    padding: 0;
+    opacity: 1;
+    z-index: 1;
+  }
+
+  .report-modal-content {
+    box-shadow: none;
+    border-radius: 0;
+    max-width: 100%;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .report-modal-header,
+  .report-footer {
+    display: none;
+  }
+
+  .report-table-wrap {
+    overflow: visible;
+    padding: 0;
+  }
+
+  .report-table th,
+  .report-table td {
+    border: 1px solid #e5e8ef;
+  }
+
+  .report-table tbody tr {
+    break-inside: avoid;
+  }
+}
+
 @media (max-width: 768px) {
   .screen.main {
     padding: 16px 16px 28px;
@@ -786,6 +853,10 @@ onMounted(async () => {
 
   .overtime-block {
     padding: 16px;
+  }
+
+  .overtime-value {
+    font-size: 26px;
   }
 
   .period-row {
@@ -808,14 +879,23 @@ onMounted(async () => {
     text-align: left;
   }
 
+  .time-inputs {
+    width: 100%;
+  }
+
+  .time-inputs input {
+    width: 80px;
+  }
+
   .main-record-btn {
-    width: 100px;
-    height: 100px;
-    font-size: 18px;
+    width: 200px;
+    height: 200px;
+    font-size: 22px;
   }
 
   .results-block {
     margin-top: 16px;
+    text-align: center;
   }
 
   .report-btn {
@@ -911,9 +991,14 @@ onMounted(async () => {
   }
 
   .main-record-btn {
-    width: 90px;
-    height: 90px;
-    font-size: 16px;
+    width: 160px;
+    height: 160px;
+    font-size: 18px;
+  }
+
+  .results-block {
+    margin-top: 16px;
+    text-align: center;
   }
 
   .report-btn {

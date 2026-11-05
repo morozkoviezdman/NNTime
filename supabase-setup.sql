@@ -7,10 +7,22 @@
 CREATE TABLE IF NOT EXISTS settings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   end_of_shift_hour smallint NOT NULL DEFAULT 18,  -- окончание смены (по норме)
+  end_of_shift_minute smallint NOT NULL DEFAULT 0, -- минуты окончания смены
   period_start date NOT NULL,                       -- начало периода отчёта
   period_end date NOT NULL,                         -- конец периода отчёта
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Добавить колонку end_of_shift_minute, если отсутствует
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'settings' AND column_name = 'end_of_shift_minute'
+  ) THEN
+    ALTER TABLE settings ADD COLUMN end_of_shift_minute smallint NOT NULL DEFAULT 0;
+  END IF;
+END $$;
 
 -- Запись о смене (переработка)
 CREATE TABLE IF NOT EXISTS work_logs (
