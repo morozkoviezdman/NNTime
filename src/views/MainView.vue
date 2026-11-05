@@ -26,6 +26,7 @@ const totalDays = ref(0)
 const workLogs = ref<any[]>([])
 const currentNote = ref('')
 const editingId = ref<string | null>(null)
+const reportOpen = ref(false)
 
 const showToast = (msg: string) => {
   toast.value = msg
@@ -157,10 +158,11 @@ const openReport = async () => {
     return
   }
   await loadWorkLogs()
-  showToast('Отчёт открыт')
+  reportOpen.value = true
 }
 
 const closeReport = () => {
+  reportOpen.value = false
   editingId.value = null
   currentNote.value = ''
   showToast('Окно закрыто')
@@ -250,7 +252,7 @@ onMounted(async () => {
     </section>
 
     <!-- Report modal -->
-    <div v-if="workLogs.length > 0 || editingId !== null" class="report-modal">
+    <div v-if="reportOpen" class="report-modal" @click.self="closeReport">
       <div class="report-modal-content">
         <div class="report-modal-header">
           <h3>Отчёт за выбранный период</h3>
@@ -310,6 +312,8 @@ onMounted(async () => {
   background: #f0f4ff;
   padding: 24px 32px 40px;
   gap: 20px;
+  max-width: 640px;
+  margin: 0 auto;
 }
 
 /* ── User block ─────────────────────────────────────────── */
@@ -549,7 +553,7 @@ onMounted(async () => {
 
 .report-modal-content {
   width: 100%;
-  max-width: 900px;
+  max-width: 600px;
   max-height: 90vh;
   background: #ffffff;
   border-radius: 16px;
@@ -761,5 +765,185 @@ onMounted(async () => {
 
 .close-action-btn:hover {
   background: #4b5563;
+}
+
+/* ── Responsive ─────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .screen.main {
+    padding: 16px 16px 28px;
+    gap: 16px;
+  }
+
+  .user-block {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .user-info {
+    width: 100%;
+    order: 3;
+  }
+
+  .overtime-block {
+    padding: 16px;
+  }
+
+  .period-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .period-label {
+    min-width: auto;
+    text-align: left;
+  }
+
+  .time-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .time-label {
+    min-width: auto;
+    text-align: left;
+  }
+
+  .main-record-btn {
+    width: 100px;
+    height: 100px;
+    font-size: 18px;
+  }
+
+  .results-block {
+    margin-top: 16px;
+  }
+
+  .report-btn {
+    padding: 14px 18px;
+    font-size: 15px;
+  }
+
+  .report-modal-content {
+    max-height: 95vh;
+  }
+
+  .report-table-wrap {
+    padding: 12px 16px;
+  }
+
+  .report-table th,
+  .report-table td {
+    padding: 10px;
+    font-size: 13px;
+  }
+
+  .report-footer {
+    padding: 12px 16px;
+  }
+
+  .report-footer .print-action-btn,
+  .report-footer .close-action-btn {
+    flex: 1;
+    padding: 12px 16px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .screen.main {
+    padding: 12px 12px 20px;
+    gap: 12px;
+  }
+
+  .user-block {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .user-avatar {
+    width: 44px;
+    height: 44px;
+    font-size: 20px;
+  }
+
+  .user-info {
+    text-align: center;
+  }
+
+  .overtime-block {
+    padding: 14px;
+  }
+
+  .period-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .period-inputs {
+    flex-direction: column;
+  }
+
+  .period-inputs input {
+    width: 100%;
+  }
+
+  .time-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .time-label {
+    min-width: auto;
+    text-align: left;
+  }
+
+  .time-inputs {
+    width: 100%;
+  }
+
+  .time-inputs input {
+    width: 100%;
+  }
+
+  .save-btn {
+    width: 100%;
+  }
+
+  .main-record-btn {
+    width: 90px;
+    height: 90px;
+    font-size: 16px;
+  }
+
+  .report-btn {
+    padding: 12px 16px;
+    font-size: 14px;
+  }
+
+  .report-modal-content {
+    max-width: 100%;
+    border-radius: 12px;
+  }
+
+  .report-table th,
+  .report-table td {
+    padding: 8px;
+    font-size: 12px;
+  }
+
+  .report-modal-header {
+    padding: 16px 18px;
+  }
+
+  .report-footer {
+    padding: 10px 16px;
+  }
+
+  .report-footer .print-action-btn,
+  .report-footer .close-action-btn {
+    padding: 10px 14px;
+    font-size: 13px;
+  }
 }
 </style>
