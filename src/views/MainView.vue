@@ -301,6 +301,11 @@ onMounted(async () => {
       </div>
     </section>
 
+    <div class="hint-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="8"/></svg>
+      <span>Значок — нажмите и удерживайте, чтобы вытащить. Можно также перетаскивать в сторону</span>
+    </div>
+
     <div class="record-center">
       <button class="main-record-btn" @click="emitRecord" :disabled="recordLoading" :class="[classNameRecord, { 'main-record-btn-green': recordButtonText === 'Обновлено' }]">
         <span>{{ recordButtonText }}</span>
@@ -344,7 +349,9 @@ onMounted(async () => {
                   </template>
                   <template v-else>
                     <span class="note-text">{{ log.note ?? '—' }}</span>
-                    <button class="edit-btn" @click="startEdit(log)">Редактировать</button>
+                    <button class="edit-btn" @click="startEdit(log)">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                    </button>
                   </template>
                 </td>
                 <td>
@@ -605,6 +612,12 @@ onMounted(async () => {
   box-shadow: 0 8px 24px rgba(22, 163, 74, 0.35);
   width: 400px;
   height: 400px;
+  color: #ffffff;
+  font-size: 32px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .main-record-btn-green:hover {
@@ -1029,4 +1042,26 @@ onMounted(async () => {
     font-size: 13px;
   }
 }
+
+.hint-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  background: #f0f4ff;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  font-size: 13px;
+  color: #555b66;
+  margin-top: 12px;
+}
+
+.hint-box svg {
+  flex-shrink: 0;
+}
+
+.hint-box span {
+  margin-left: 6px;
+}
+
 </style>
