@@ -1,26 +1,41 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { getSettings, getPeriodOvertime, updateSettings, getWorkLogs, deleteWorkLog, updateNote } from '@/utils/db'
+import { getSettings, getPeriodOvertime, updateSettings, getWorkLogs, deleteWorkLog, updateNote, recordWorkSession } from '@/utils/db'
 
 const authStore = useAuthStore()
 const router = useRouter()
 
+// State
+const settings = ref<any>(null)
+const overtimeHours = ref(18)
+const overtimeMinutes = ref(0)
+
+// State for save button
 const saveLoading = ref(false)
-const editLoading = ref(false)
+const saveButtonText = ref('Сохранить')
+const saveButtonGreen = ref(false)
+const saveBusy = ref(false)
 const error = ref('')
 const toast = ref('')
 const toastVisible = ref(false)
 const toastTimer = ref<number | null>(null)
 
-const settings = ref<any>(null)
-const overtimeHours = ref(18)
-const overtimeMinutes = ref(0)
+// State for record button
+const recordLoading = ref(false)
+const recordButtonText = ref('Зафиксировать')
+const recordButtonGreen = ref(false)
+const recordingTimeout = ref<number | null>(null)
+
+// State for edit modal
+const editLoading = ref(false)
 const today = new Date()
 const startDefault = new Date(today)
 startDefault.setDate(today.getDate() - 365)
 const endDefault = new Date()
+
+// State
 const formatDateForInput = (d: Date) => {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
@@ -29,21 +44,14 @@ const formatDateForInput = (d: Date) => {
 }
 const periodStart = ref<string>(formatDateForInput(startDefault))
 const periodEnd = ref<string>(formatDateForInput(endDefault))
-
 const totalMinutes = ref(0)
 const totalHours = ref(0)
 const totalMinLeft = ref(0)
 const totalDays = ref(0)
-
 const workLogs = ref<any[]>([])
 const currentNote = ref('')
 const editingId = ref<string | null>(null)
 const reportOpen = ref(false)
-
-const saveButtonText = ref('Сохранить')
-const saveButtonGreen = ref(false)
-const saveBusy = ref(false)
-
 const showToast = (msg: string) => {
   toast.value = msg
   toastVisible.value = true
@@ -54,6 +62,11 @@ const showToast = (msg: string) => {
   }, 2500)
 }
 
+// Computed
+const classNameSave = computed(() => saveButtonGreen.value ? 'save-btn-green' : 'save-btn')
+const classNameRecord = computed(() => (recordButtonText.value === 'Обновлено') ? 'main-record-btn-green' : 'main-record-btn-default')
+
+// Formatters
 const formatDateDisplay = (dateStr: string) => {
   if (!dateStr) return '—'
   const parts = dateStr.split('-')
@@ -74,6 +87,7 @@ const formatDuration = (minutes: number) => {
   return `${h}:${String(m).padStart(2, '0')}`
 }
 
+// Load settings from DB on session start
 const loadSettings = async () => {
   try {
     const today = new Date()
@@ -84,26 +98,20 @@ const loadSettings = async () => {
     let endDefault2 = new Date()
     const startVal = data?.period_start && data.period_start.trim() ? data.period_start : formatDateForInput(startDefault2)
     const endVal = data?.period_end && data.period_end.trim() ? data.period_end : formatDateForInput(endDefault2)
-    settings.value = {
-      id: data?.id ?? `${userId}-settings`,
-      end_of_shift_hour: data?.end_of_shift_hour ?? overtimeHours.value,
-      end_of_shift_minute: data?.end_of_shift_minute ?? overtimeMinutes.value,
-      period_start: startVal,
-      period_end: endVal,
-      updated_at: data?.updated_at ?? new Date().toISOString(),
-    }
-    periodStart.value = startVal
-    periodEnd.value = endVal
     if (!data) {
       await updateSettings({
         id: `${userId}-settings`,
-        end_of_shift_hour: overtimeHours.value,
-        end_of_shift_minute: overtimeMinutes.value,
+        end_of_shift_hour: 18,
+        end_of_shift_minute: 0,
         period_start: startVal,
         period_end: endVal,
         updated_at: new Date().toISOString(),
       })
     }
+    periodStart.value = startVal
+    periodEnd.value = endVal
+    overtimeHours.value = data?.end_of_shift_hour ?? 18
+    overtimeMinutes.value = data?.end_of_shift_minute ?? 0
   } catch (e: any) {
     error.value = e.message || 'Не удалось загрузить настройки'
   }
@@ -145,10 +153,8 @@ const saveSettings = async () => {
     })
     await loadPeriodOvertime()
     showToast('Настройки сохранены')
-    saveButtonText.value = 'Обновлено'
     saveButtonGreen.value = true
     setTimeout(() => {
-      saveButtonText.value = 'Сохранить'
       saveButtonGreen.value = false
     }, 3000)
   } catch (e: any) {
@@ -157,6 +163,40 @@ const saveSettings = async () => {
     saveBusy.value = false
     saveLoading.value = false
   }
+}
+
+const emitRecord = async () => {
+  error.value = ''
+  let addedMinutes = 0
+  try {
+    recordLoading.value = true
+    recordButtonText.value = 'Обновлено'
+    addedMinutes = await recordWorkSession(overtimeHours.value, overtimeMinutes.value)
+    const msg = addedMinutes >= 60 ? `Добавлено ${Math.floor(addedMinutes / 60)} ч ${addedMinutes % 60} м` : `Добавлено ${addedMinutes} м`
+    showToast(msg)
+    if (periodStart.value && periodEnd.value) {
+      await loadPeriodOvertime()
+      await loadWorkLogs()
+    }
+    if (recordingTimeout.value) clearTimeout(recordingTimeout.value)
+    recordingTimeout.value = window.setTimeout(() => {
+      recordButtonText.value = 'Зафиксировать'
+      recordButtonGreen.value = false
+    }, 3000)
+  } catch (e: any) {
+    error.value = e.message || 'Ошибка записи'
+  } finally {
+    recordLoading.value = false
+  }
+}
+
+const openReport = async () => {
+  if (!periodStart.value || !periodEnd.value) {
+    showToast('Сначала выберите период')
+    return
+  }
+  await loadWorkLogs()
+  reportOpen.value = true
 }
 
 const closeReport = () => {
@@ -252,30 +292,44 @@ onMounted(async () => {
           <span class="time-colon">:</span>
           <input type="number" v-model.number="overtimeMinutes" min="0" max="59" placeholder="Минуты" />
         </div>
-        <button class="save-btn" @click="saveSettings" :disabled="saveLoading || saveBusy" :class="['save-btn', { 'save-btn-green': saveButtonGreen }]">
-          {{ saveLoading ? 'Сохраняю...' : saveButtonText }}
-        </button>
+        <div class="save-row">
+          <button class="save-btn" @click="saveSettings" :disabled="saveLoading || saveBusy" :class="[classNameSave, { 'save-btn-green': saveButtonGreen }]">
+            {{ saveLoading ? 'Сохраняю...' : saveButtonText }}
+          </button>
+        </div>
       </div>
     </section>
 
-    <div class="hint-box">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="8"/></svg>
-          <span>
-            <strong>Как добавить на домашний экран:</strong>
-            <ul style="margin: 6px 0 0 18px; padding: 0;">
-              <li><strong>iOS (Safari):</strong> Нажмите «Поделиться» («Share»), выберите «Добавить на домашний экран», дайте имя ярлыку и нажмите «Добавить».</li>
-              <li><strong>Android (Chrome):</strong> Откройте меню (три точки), выберите «Добавить на экран», назовите ярлык и нажмите «Добавить».</li>
-            </ul>
-          </span>
-        </div>
+    <div class="record-center">
+      <button class="main-record-btn" @click="emitRecord" :disabled="recordLoading" :class="[classNameRecord, { 'main-record-btn-green': recordButtonText === 'Обновлено' }]">
+        <span>{{ recordButtonText }}</span>
+      </button>
+    </div>
 
-        <div v-if="reportOpen" class="report-modal" @click.self="closeReport">
+    <div class="results-block">
+      <button class="report-btn" @click="openReport">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span>Вывести отчёт за выбранный период</span>
+      </button>
+    </div>
+
+    <div class="hint-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="8"/></svg>
+      <span>
+        <strong>Как добавить на домашний экран:</strong>
+        <ul style="margin: 6px 0 0 18px; padding: 0;">
+          <li><strong>iOS (Safari):</strong> Нажмите «Поделиться» («Share»), выберите «Добавить на домашний экран», дайте имя ярлыку и нажмите «Добавить».</li>
+          <li><strong>Android (Chrome):</strong> Откройте меню (три точки), выберите «Добавить на экран», назовите ярлык и нажмите «Добавить».</li>
+        </ul>
+      </span>
+    </div>
+
+    <div v-if="reportOpen" class="report-modal" @click.self="closeReport">
       <div class="report-modal-content">
         <div class="report-modal-header">
           <h3>Отчёт за выбранный период</h3>
           <button class="close-btn" @click="closeReport">✕</button>
         </div>
-
         <div class="report-table-wrap">
           <table class="report-table">
             <thead>
@@ -460,8 +514,8 @@ onMounted(async () => {
 
 .time-row {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  flex-direction: column;
+  gap: 12px;
   margin-bottom: 16px;
 }
 
@@ -469,23 +523,19 @@ onMounted(async () => {
   font-size: 14px;
   font-weight: 600;
   color: #555b66;
-  min-width: 220px;
 }
 
 .time-inputs {
-  flex: 1;
   display: flex;
-  align-items: center;
   gap: 12px;
 }
 
 .time-inputs input {
-  width: 80px;
+  flex: 1;
   padding: 10px 14px;
   border: 1px solid #d1d5db;
   border-radius: 10px;
   font-size: 14px;
-  text-align: center;
   background: #f8fafc;
   transition: border-color 0.2s;
 }
@@ -496,9 +546,9 @@ onMounted(async () => {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
-.time-colon {
-  color: #9ca3af;
-  font-weight: 700;
+.save-row {
+  display: flex;
+  justify-content: flex-start;
 }
 
 .save-btn {
@@ -513,8 +563,9 @@ onMounted(async () => {
   transition: background 0.2s;
 }
 
-.save-btn:hover {
-  background: #1d4ed8;
+.save-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .save-btn-green {
@@ -527,86 +578,102 @@ onMounted(async () => {
   background: #15803d !important;
 }
 
-.save-btn:disabled {
-  opacity: 0.6;
-  cursor: wait;
-}
-
 .record-center {
   display: flex;
   justify-content: center;
+  margin-bottom: 16px;
 }
 
-.main-record-btn-default {
-  width: 400px;
-  height: 400px;
-  border-radius: 200px;
-  background: #2563eb;
-  color: #ffffff;
-  border: none;
-  cursor: pointer;
-  font-size: 32px;
-  font-weight: 700;
+.main-record-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.3s;
-  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.35);
+  gap: 8px;
+  padding: 12px 24px;
+  border: 2px solid #2563eb;
+  border-radius: 200px;
+  background: #ffffff;
+  color: #2563eb;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.main-record-btn:hover {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.main-record-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .main-record-btn-green {
   background: #16a34a !important;
-  border-radius: 200px !important;
-  box-shadow: 0 8px 24px rgba(22, 163, 74, 0.35);
-  width: 400px;
-  height: 400px;
-  color: #ffffff;
-  font-size: 32px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  border-color: #16a34a !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
 }
 
 .main-record-btn-green:hover {
   background: #15803d !important;
+  border-color: #15803d !important;
 }
 
 .results-block {
-  margin-top: 24px;
   text-align: center;
+  margin-bottom: 12px;
 }
 
 .report-btn {
-  margin: 0 auto;
-  display: block;
-  max-width: 400px;
-  margin-left: auto;
-  margin-right: auto;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px 24px;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
   background: #ffffff;
-  border: 2px solid #e5e8ef;
-  border-radius: 14px;
+  border: 1px solid #e5e8ef;
+  border-radius: 12px;
   color: #1a1d21;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s, border-color 0.2s, transform 0.12s;
+  transition: all 0.2s;
 }
 
 .report-btn:hover {
-  background: #f8fafc;
+  background: #f0f4ff;
   border-color: #2563eb;
-  transform: translateY(-1px);
+  color: #2563eb;
 }
 
-.report-btn svg {
-  width: 24px;
-  height: 24px;
+.results-block .report-btn svg {
+  flex-shrink: 0;
+}
+
+.hint-box {
+  background: #eff6ff;
+  border: 1px solid #bae6fd;
+  border-radius: 12px;
+  padding: 16px 20px;
+  text-align: center;
+}
+
+.hint-box svg {
   color: #2563eb;
+}
+
+.hint-box span {
+  font-size: 14px;
+  color: #374151;
+}
+
+.hint-box strong {
+  color: #1a1d21;
+  display: block;
+  margin-bottom: 6px;
 }
 
 .report-modal {
@@ -614,10 +681,9 @@ onMounted(async () => {
   inset: 0;
   background: rgba(0, 0, 0, 0.4);
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
   z-index: 1000;
-  padding: 20px;
 }
 
 .report-modal-content {
@@ -625,18 +691,16 @@ onMounted(async () => {
   max-width: 670px;
   max-height: 90vh;
   background: #ffffff;
-  border-radius: 16px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  border-radius: 16px 16px 0 0;
+  overflow-y: auto;
+  padding: 0;
 }
 
 .report-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 24px;
+  padding: 16px 20px;
   border-bottom: 1px solid #e5e8ef;
 }
 
@@ -650,9 +714,9 @@ onMounted(async () => {
 .close-btn {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
   border: none;
   background: #f3f4f6;
+  border-radius: 50%;
   color: #6b7280;
   font-size: 18px;
   cursor: pointer;
@@ -669,7 +733,7 @@ onMounted(async () => {
 
 .report-table-wrap {
   overflow-y: auto;
-  padding: 16px 24px;
+  padding: 12px 24px;
 }
 
 .report-table {
@@ -691,7 +755,7 @@ onMounted(async () => {
 }
 
 .report-table td {
-  padding: 14px;
+  padding: 12px 14px;
   border-bottom: 1px solid #eef1f5;
   color: #1a1d21;
   vertical-align: middle;
@@ -733,6 +797,17 @@ onMounted(async () => {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  transition: background 0.2s;
+}
+
+.save-edit-btn:hover {
+  background: #1d4ed8;
+}
+
+.actions-cell {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .edit-btn {
@@ -745,6 +820,7 @@ onMounted(async () => {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  transition: all 0.2s;
 }
 
 .edit-btn:hover {
@@ -752,46 +828,23 @@ onMounted(async () => {
   color: #1a1d21;
 }
 
-.report-footer {
+.close-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: #f3f4f6;
+  border-radius: 8px;
+  color: #6b7280;
+  cursor: pointer;
   display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 16px 24px;
-  border-top: 1px solid #e5e8ef;
-  background: #f8fafc;
-  border-radius: 0 0 14px 14px;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
 }
 
-.print-action-btn {
-  padding: 10px 20px;
-  background: #16a34a;
-  color: #ffffff;
-  border: none;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.print-action-btn:hover {
-  background: #15803d;
-}
-
-.close-action-btn {
-  padding: 10px 20px;
-  background: #6b7280;
-  color: #ffffff;
-  border: none;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.close-action-btn:hover {
-  background: #4b5563;
+.close-btn:hover {
+  background: #e5e7eb;
+  color: #1a1d21;
 }
 
 @media (max-width: 768px) {
@@ -1011,5 +1064,4 @@ onMounted(async () => {
 .hint-box span {
   margin-left: 6px;
 }
-
 </style>
