@@ -33,6 +33,9 @@ const workLogs = ref<any[]>([])
 const currentNote = ref('')
 const editingId = ref<string | null>(null)
 const reportOpen = ref(false)
+const changesOpen = ref(false)
+const version = 'v1.0.0'
+const buildDate = new Date().toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric' })
 
 const saveLoading = ref(false)
 const saveButtonText = ref('Сохранить')
@@ -171,9 +174,38 @@ const emitRecord = async () => {
   try {
     recordLoading.value = true
     recordButtonText.value = 'Обновлено'
-    addedMinutes = await recordWorkSession(overtimeHours.value, overtimeMinutes.value)
-    const msg = addedMinutes >= 60 ? `Добавлено ${Math.floor(addedMinutes / 60)} ч ${addedMinutes % 60} м` : `Добавлено ${addedMinutes} м`
-    showToast(msg)
+
+    // 1. Check current time vs settings time
+    const now = new Date()
+    const currentTotalMinutes = now.getHours() * 60 + now.getMinutes()
+    const overtimeTotalMinutes = overtimeHours.value * 60 + overtimeMinutes.value
+
+    if (currentTotalMinutes < overtimeTotalMinutes) {
+      const confirmed = confirm('Текущее время меньше, чем время окончания работы в настройках.\nПереработка не возможна. Произвести запись?')
+      if (!confirmed) {
+        recordLoading.value = false
+        return
+      }
+    }
+
+    // 2. Time is valid, check if record with same date exists
+    const todayStr = formatDateForInput(now)
+    const existingLog = workLogs.value.find((log: any) => log.date === todayStr)
+
+    if (existingLog) {
+      await updateNote(existingLog.id, existingLog.note)
+      showToast('Сверхнорма перезаписана')
+    } else {
+      addedMinutes = await recordWorkSession(overtimeHours.value, overtimeMinutes.value)
+      const msg = addedMinutes >= 60 ? `Добавлено ${Math.floor(addedMinutes / 60)} ч ${addedMinutes % 60} м` : `Добавлено ${addedMinutes} м`
+      showToast(msg)
+      if (recordingTimeout.value) clearTimeout(recordingTimeout.value)
+      recordingTimeout.value = window.setTimeout(() => {
+        recordButtonText.value = 'Зафиксировать'
+        recordButtonGreen.value = false
+      }, 3000)
+    }
+
     if (periodStart.value && periodEnd.value) {
       await loadPeriodOvertime()
       await loadWorkLogs()
@@ -334,12 +366,46 @@ onMounted(async () => {
       </ul>
     </div>
 
+    <!-- Version & Changes footer -->
+    <div class="version-footer">
+      <span class="version-label">Версия: {{ version }} ({{ buildDate }})</span>
+      <button class="changes-btn" @click="changesOpen = true" title="История изменений">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="16" x2="12" y2="12"/>
+          <line x1="12" y1="8" x2="12" y2="8"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Changes modal -->
+    <div v-if="changesOpen" class="changes-modal" @click.self="changesOpen = false">
+      <div class="changes-modal-content">
+        <div class="changes-modal-header">
+          <h3>История изменений</h3>
+          <button class="close-btn" @click="changesOpen = false" title="Закрыть">✕</button>
+        </div>
+        <div class="changes-list">
+          <div class="change-item">
+            <span class="change-version">v1.0.0</span>
+            <span class="change-date">{{ buildDate }}</span>
+            <ul class="change-list">
+              <li>Первый релиз приложения</li>
+            </ul>
+          </div>
+        </div>
+        <div class="changes-footer">
+          <button class="close-btn" @click="changesOpen = false" title="Закрыть">Закрыть</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Report modal -->
     <div v-if="reportOpen" class="report-modal" @click.self="closeReport">
       <div class="report-modal-content">
         <div class="report-modal-header">
           <h3>Отчёт за выбранный период</h3>
-          <button class="close-btn" @click="closeReport">✕</button>
+          <button class="close-btn" @click="closeReport" title="Закрыть">✕</button>
         </div>
         <div class="report-table-wrap">
           <table class="report-table">
@@ -360,30 +426,30 @@ onMounted(async () => {
                 <td class="comment-cell">
                   <template v-if="editingId === log.id">
                     <input v-model="currentNote" class="note-input" />
-                    <button class="save-edit-btn" @click="saveEdit">Сохранить</button>
+                    <button class="save-edit-btn" @click="saveEdit" title="Сохранить">Сохранить</button>
                   </template>
                   <template v-else>
                     <span class="note-text">{{ log.note ?? '—' }}</span>
                   </template>
                 </td>
-                <td>
-                  <div class="actions-cell">
-                    <button class="edit-btn" @click="startEdit(log)">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
-                        <path d="M12 20h9"/>
-                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-                      </svg>
-                    </button>
-                    <button class="close-btn" @click="deleteLog(log)">✕</button>
-                  </div>
-                </td>
+                                <td>
+                                  <div class="actions-cell">
+                                    <button class="edit-btn" @click="startEdit(log)" title="Редактировать запись">
+                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                                        <path d="M12 20h9"/>
+                                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                                      </svg>
+                                    </button>
+                                    <button class="close-btn" @click="deleteLog(log)" title="Удалить запись">✕</button>
+                                  </div>
+                                </td>
               </tr>
             </tbody>
           </table>
         </div>
         <div class="report-footer">
-          <button class="print-action-btn" @click="printModal()">Печать</button>
-          <button class="close-action-btn" @click="closeReport">Закрыть</button>
+          <button class="print-action-btn" @click="printModal()" title="Напечатать отчёт">Печать</button>
+          <button class="close-action-btn" @click="closeReport" title="Закрыть">Закрыть</button>
         </div>
       </div>
     </div>
@@ -583,24 +649,24 @@ onMounted(async () => {
   background: #15803d !important;
 }
 
-/* ── Fix button (circular) ───────────────────────────── */
+/* ── Fix button (2x larger) ───────────────────────────── */
 .record-center {
   display: flex;
   justify-content: center;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
 .main-record-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 12px 24px;
-  border: 2px solid #2563eb;
+  gap: 12px;
+  padding: 20px 32px;
+  border: 3px solid #2563eb;
   border-radius: 200px;
   background: #ffffff;
   color: #2563eb;
-  font-size: 16px;
+  font-size: 28px;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s;
@@ -620,7 +686,7 @@ onMounted(async () => {
   background: #16a34a !important;
   border-color: #16a34a !important;
   color: #ffffff !important;
-  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
+  box-shadow: 0 6px 16px rgba(22, 163, 74, 0.3);
 }
 
 .main-record-btn-green:hover {
@@ -790,10 +856,11 @@ onMounted(async () => {
 .note-text {
   font-size: 14px;
   color: #6b7280;
+  line-height: 1.6;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  hyphens: auto;
   max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .note-input {
@@ -923,7 +990,7 @@ onMounted(async () => {
   .main-record-btn {
     width: 200px;
     height: 200px;
-    font-size: 22px;
+    font-size: 28px;
   }
 
   .results-block {
@@ -1017,7 +1084,7 @@ onMounted(async () => {
   .main-record-btn {
     width: 160px;
     height: 160px;
-    font-size: 18px;
+    font-size: 34px;
   }
 
   .results-block {
