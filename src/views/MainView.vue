@@ -572,6 +572,7 @@ onMounted(async () => {
 
 .save-btn-green {
   background: #16a34a !important;
+  color: #ffffff !important;
   box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
 }
 

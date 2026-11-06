@@ -126,7 +126,7 @@ export async function updateSettings(updates: Partial<SettingsRow>) {
   const periodStart = updates.period_start ?? '0001-01-01'
   const periodEnd = updates.period_end ?? '9999-12-31'
   const userId = session.user.id
-  const id = updates.id ?? `${userId}-settings`
+  const id = updates.id ?? crypto.randomUUID()
 
   const { data, error } = await supabase
     .from('settings')

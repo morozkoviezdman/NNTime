@@ -68,3 +68,17 @@ CREATE POLICY settings_update ON settings FOR UPDATE
   TO authenticated
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
+
+ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY settings_select ON settings FOR SELECT
+  TO authenticated USING (auth.uid() = user_id);
+
+CREATE POLICY settings_insert ON settings FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY settings_update ON settings FOR UPDATE
+  TO authenticated
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
