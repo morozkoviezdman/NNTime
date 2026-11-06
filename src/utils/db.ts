@@ -154,7 +154,7 @@ export async function updateNote(id: string, note: string) {
 
   const { error } = await supabase
     .from('work_logs')
-    .update({ note, updated_at: new Date().toISOString() })
+    .update({ note })
     .eq('id', id)
 
   if (error) throw error

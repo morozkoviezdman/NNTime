@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS work_logs (
   press_time timestamptz NOT NULL,
   overtime_minutes integer NOT NULL DEFAULT 0,   -- минуты сверх нормы
   note text NULL,                                -- примечание
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 -- Индекс по user_id + date

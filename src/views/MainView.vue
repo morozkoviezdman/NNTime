@@ -9,6 +9,7 @@ const router = useRouter()
 
 const saveLoading = ref(false)
 const recordLoading = ref(false)
+const editLoading = ref(false)
 const error = ref('')
 const toast = ref('')
 const toastVisible = ref(false)
@@ -212,8 +213,7 @@ const startEdit = (log: any) => {
 const saveEdit = async () => {
   if (!editingId.value) return
   try {
-    saveBusy.value = true
-    saveLoading.value = true
+    editLoading.value = true
     await updateNote(editingId.value, currentNote.value)
     await loadWorkLogs()
     editingId.value = null
@@ -222,8 +222,7 @@ const saveEdit = async () => {
   } catch (e: any) {
     error.value = e.message || 'Ошибка сохранения'
   } finally {
-    saveBusy.value = false
-    saveLoading.value = false
+    editLoading.value = false
   }
 }
 
@@ -604,6 +603,8 @@ onMounted(async () => {
   background: #16a34a !important;
   border-radius: 200px !important;
   box-shadow: 0 8px 24px rgba(22, 163, 74, 0.35);
+  width: 400px;
+  height: 400px;
 }
 
 .main-record-btn-green:hover {
