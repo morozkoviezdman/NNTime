@@ -46,6 +46,7 @@ const classNameRecord = computed(() => recordButtonText.value === 'Обновл�
 const recordingTimeout = ref<number | null>(null)
 const saveButtonText = ref('Сохранить')
 const saveButtonGreen = ref(false)
+const saveBusy = ref(false)
 
 const showToast = (msg: string) => {
   toast.value = msg
@@ -137,6 +138,7 @@ const loadWorkLogs = async () => {
 
 const saveSettings = async () => {
   try {
+    saveBusy.value = true
     saveLoading.value = true
     const { id } = settings.value as any
     await updateSettings({
@@ -157,6 +159,7 @@ const saveSettings = async () => {
   } catch (e: any) {
     error.value = e.message || 'Ошибка сохранения'
   } finally {
+    saveBusy.value = false
     saveLoading.value = false
   }
 }
@@ -209,6 +212,7 @@ const startEdit = (log: any) => {
 const saveEdit = async () => {
   if (!editingId.value) return
   try {
+    saveBusy.value = true
     saveLoading.value = true
     await updateNote(editingId.value, currentNote.value)
     await loadWorkLogs()
@@ -218,6 +222,7 @@ const saveEdit = async () => {
   } catch (e: any) {
     error.value = e.message || 'Ошибка сохранения'
   } finally {
+    saveBusy.value = false
     saveLoading.value = false
   }
 }
@@ -291,7 +296,7 @@ onMounted(async () => {
           <span class="time-colon">:</span>
           <input type="number" v-model.number="overtimeMinutes" min="0" max="59" placeholder="Минуты" />
         </div>
-        <button class="save-btn" @click="saveSettings" :disabled="saveLoading" :class="[classNameSave, { 'save-btn-green': saveButtonGreen }]">
+        <button class="save-btn" @click="saveSettings" :disabled="saveLoading || saveBusy" :class="[classNameSave, { 'save-btn-green': saveButtonGreen }]">
           {{ saveLoading ? 'Сохраняю...' : saveButtonText }}
         </button>
       </div>
@@ -597,6 +602,7 @@ onMounted(async () => {
 
 .main-record-btn-green {
   background: #16a34a !important;
+  border-radius: 200px !important;
   box-shadow: 0 8px 24px rgba(22, 163, 74, 0.35);
 }
 
