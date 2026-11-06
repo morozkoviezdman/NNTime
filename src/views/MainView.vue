@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { getSettings, getPeriodOvertime, updateSettings, getWorkLogs, deleteWorkLog, updateNote, recordWorkSession } from '@/utils/db'
+import { getSettings, getPeriodOvertime, updateSettings, getWorkLogs, deleteWorkLog, updateNote } from '@/utils/db'
 
 const authStore = useAuthStore()
 const router = useRouter()
 
 const saveLoading = ref(false)
-const recordLoading = ref(false)
 const editLoading = ref(false)
 const error = ref('')
 const toast = ref('')
@@ -41,10 +40,6 @@ const currentNote = ref('')
 const editingId = ref<string | null>(null)
 const reportOpen = ref(false)
 
-const recordButtonText = ref('Зафиксировать')
-const classNameSave = computed(() => saveButtonGreen.value ? 'save-btn-green' : 'save-btn-default')
-const classNameRecord = computed(() => recordButtonText.value === 'Обновлено' ? 'main-record-btn-green' : 'main-record-btn-default')
-const recordingTimeout = ref<number | null>(null)
 const saveButtonText = ref('Сохранить')
 const saveButtonGreen = ref(false)
 const saveBusy = ref(false)
@@ -81,34 +76,33 @@ const formatDuration = (minutes: number) => {
 
 const loadSettings = async () => {
   try {
-    const data = await getSettings()
     const today = new Date()
-    if (data) {
-      settings.value = data
-      overtimeHours.value = data.end_of_shift_hour ?? 18
-      overtimeMinutes.value = data.end_of_shift_minute ?? 0
-      const startDefault2 = new Date(today)
-      startDefault2.setDate(today.getDate() - 365)
-      const endDefault2 = new Date()
-      const startVal = data.period_start && data.period_start.trim() ? data.period_start : formatDateForInput(startDefault2)
-      const endVal = data.period_end && data.period_end.trim() ? data.period_end : formatDateForInput(endDefault2)
-      periodStart.value = startVal
-      periodEnd.value = endVal
-    } else {
-      const startDefault2 = new Date(today)
-      startDefault2.setDate(today.getDate() - 365)
-      const endDefault2 = new Date()
-      settings.value = {
-        id: crypto.randomUUID(),
+    const userId = (authStore.user as any)?.id
+    const data = await getSettings()
+    let startDefault2 = new Date(today)
+    startDefault2.setDate(today.getDate() - 365)
+    let endDefault2 = new Date()
+    const startVal = data?.period_start && data.period_start.trim() ? data.period_start : formatDateForInput(startDefault2)
+    const endVal = data?.period_end && data.period_end.trim() ? data.period_end : formatDateForInput(endDefault2)
+    settings.value = {
+      id: data?.id ?? `${userId}-settings`,
+      end_of_shift_hour: data?.end_of_shift_hour ?? overtimeHours.value,
+      end_of_shift_minute: data?.end_of_shift_minute ?? overtimeMinutes.value,
+      period_start: startVal,
+      period_end: endVal,
+      updated_at: data?.updated_at ?? new Date().toISOString(),
+    }
+    periodStart.value = startVal
+    periodEnd.value = endVal
+    if (!data) {
+      await updateSettings({
+        id: `${userId}-settings`,
         end_of_shift_hour: overtimeHours.value,
         end_of_shift_minute: overtimeMinutes.value,
-        period_start: formatDateForInput(startDefault2),
-        period_end: formatDateForInput(endDefault2),
+        period_start: startVal,
+        period_end: endVal,
         updated_at: new Date().toISOString(),
-      }
-      periodStart.value = formatDateForInput(startDefault2)
-      periodEnd.value = formatDateForInput(endDefault2)
-      await updateSettings(settings.value)
+      })
     }
   } catch (e: any) {
     error.value = e.message || 'Не удалось загрузить настройки'
@@ -141,7 +135,7 @@ const saveSettings = async () => {
   try {
     saveBusy.value = true
     saveLoading.value = true
-    const { id } = settings.value as any
+    const id = settings.value?.id
     await updateSettings({
       id: id || crypto.randomUUID(),
       end_of_shift_hour: overtimeHours.value,
@@ -163,39 +157,6 @@ const saveSettings = async () => {
     saveBusy.value = false
     saveLoading.value = false
   }
-}
-
-const emitRecord = async () => {
-  error.value = ''
-  let addedMinutes = 0
-  try {
-    recordLoading.value = true
-    recordButtonText.value = 'Обновлено'
-    addedMinutes = await recordWorkSession(overtimeHours.value, overtimeMinutes.value)
-    const msg = addedMinutes >= 60 ? `Добавлено ${Math.floor(addedMinutes / 60)} ч ${addedMinutes % 60} м` : `Добавлено ${addedMinutes} м`
-    showToast(msg)
-    if (periodStart.value && periodEnd.value) {
-      await loadPeriodOvertime()
-      await loadWorkLogs()
-    }
-    if (recordingTimeout.value) clearTimeout(recordingTimeout.value)
-    recordingTimeout.value = window.setTimeout(() => {
-      recordButtonText.value = 'Зафиксировать'
-    }, 3000)
-  } catch (e: any) {
-    error.value = e.message || 'Ошибка записи'
-  } finally {
-    recordLoading.value = false
-  }
-}
-
-const openReport = async () => {
-  if (!periodStart.value || !periodEnd.value) {
-    showToast('Сначала выберите период')
-    return
-  }
-  await loadWorkLogs()
-  reportOpen.value = true
 }
 
 const closeReport = () => {
@@ -246,10 +207,6 @@ const logout = async () => {
   }
 }
 
-const handlePrint = () => {
-  window.print()
-}
-
 onMounted(async () => {
   await authStore.loadSession()
   if (!authStore.isAuthenticated) {
@@ -295,31 +252,24 @@ onMounted(async () => {
           <span class="time-colon">:</span>
           <input type="number" v-model.number="overtimeMinutes" min="0" max="59" placeholder="Минуты" />
         </div>
-        <button class="save-btn" @click="saveSettings" :disabled="saveLoading || saveBusy" :class="[classNameSave, { 'save-btn-green': saveButtonGreen }]">
+        <button class="save-btn" @click="saveSettings" :disabled="saveLoading || saveBusy" :class="['save-btn', { 'save-btn-green': saveButtonGreen }]">
           {{ saveLoading ? 'Сохраняю...' : saveButtonText }}
         </button>
       </div>
     </section>
 
     <div class="hint-box">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="8"/></svg>
-      <span>Значок — нажмите и удерживайте, чтобы вытащить. Можно также перетаскивать в сторону</span>
-    </div>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="8"/></svg>
+          <span>
+            <strong>Как добавить на домашний экран:</strong>
+            <ul style="margin: 6px 0 0 18px; padding: 0;">
+              <li><strong>iOS (Safari):</strong> Нажмите «Поделиться» («Share»), выберите «Добавить на домашний экран», дайте имя ярлыку и нажмите «Добавить».</li>
+              <li><strong>Android (Chrome):</strong> Откройте меню (три точки), выберите «Добавить на экран», назовите ярлык и нажмите «Добавить».</li>
+            </ul>
+          </span>
+        </div>
 
-    <div class="record-center">
-      <button class="main-record-btn" @click="emitRecord" :disabled="recordLoading" :class="[classNameRecord, { 'main-record-btn-green': recordButtonText === 'Обновлено' }]">
-        <span>{{ recordButtonText }}</span>
-      </button>
-    </div>
-
-    <section class="results-block">
-      <button class="report-btn" @click="openReport">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-        <span>Вывести отчёт за выбранный период</span>
-      </button>
-    </section>
-
-    <div v-if="reportOpen" class="report-modal" @click.self="closeReport">
+        <div v-if="reportOpen" class="report-modal" @click.self="closeReport">
       <div class="report-modal-content">
         <div class="report-modal-header">
           <h3>Отчёт за выбранный период</h3>
@@ -349,22 +299,19 @@ onMounted(async () => {
                   </template>
                   <template v-else>
                     <span class="note-text">{{ log.note ?? '—' }}</span>
-                    <button class="edit-btn" @click="startEdit(log)">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                    </button>
                   </template>
                 </td>
                 <td>
-                  <button class="close-btn" @click="deleteLog(log)">✕</button>
+                  <div class="actions-cell">
+                    <button class="edit-btn" @click="startEdit(log)">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                    </button>
+                    <button class="close-btn" @click="deleteLog(log)">✕</button>
+                  </div>
                 </td>
               </tr>
             </tbody>
           </table>
-        </div>
-
-        <div class="report-footer">
-          <button class="print-action-btn" @click="handlePrint">Печать</button>
-          <button class="close-action-btn" @click="closeReport">✕ Закрыть окно</button>
         </div>
       </div>
     </div>
