@@ -209,6 +209,7 @@ const startEdit = (log: any) => {
 const saveEdit = async () => {
   if (!editingId.value) return
   try {
+    saveLoading.value = true
     await updateNote(editingId.value, currentNote.value)
     await loadWorkLogs()
     editingId.value = null
@@ -216,6 +217,8 @@ const saveEdit = async () => {
     showToast('Комментарий сохранён')
   } catch (e: any) {
     error.value = e.message || 'Ошибка сохранения'
+  } finally {
+    saveLoading.value = false
   }
 }
 
