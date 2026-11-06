@@ -7,41 +7,22 @@ import { getSettings, getPeriodOvertime, updateSettings, getWorkLogs, deleteWork
 const authStore = useAuthStore()
 const router = useRouter()
 
-// State
+// ── State ──────────────────────────────────────────────
 const settings = ref<any>(null)
 const overtimeHours = ref(18)
 const overtimeMinutes = ref(0)
-
-// State for save button
-const saveLoading = ref(false)
-const saveButtonText = ref('Сохранить')
-const saveButtonGreen = ref(false)
-const saveBusy = ref(false)
-const error = ref('')
-const toast = ref('')
-const toastVisible = ref(false)
-const toastTimer = ref<number | null>(null)
-
-// State for record button
-const recordLoading = ref(false)
-const recordButtonText = ref('Зафиксировать')
-const recordButtonGreen = ref(false)
-const recordingTimeout = ref<number | null>(null)
-
-// State for edit modal
-const editLoading = ref(false)
 const today = new Date()
 const startDefault = new Date(today)
 startDefault.setDate(today.getDate() - 365)
 const endDefault = new Date()
 
-// State
 const formatDateForInput = (d: Date) => {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
+
 const periodStart = ref<string>(formatDateForInput(startDefault))
 const periodEnd = ref<string>(formatDateForInput(endDefault))
 const totalMinutes = ref(0)
@@ -52,6 +33,27 @@ const workLogs = ref<any[]>([])
 const currentNote = ref('')
 const editingId = ref<string | null>(null)
 const reportOpen = ref(false)
+
+const saveLoading = ref(false)
+const saveButtonText = ref('Сохранить')
+const saveButtonGreen = ref(false)
+const saveBusy = ref(false)
+const error = ref('')
+const toast = ref('')
+const toastVisible = ref(false)
+const toastTimer = ref<number | null>(null)
+
+const recordLoading = ref(false)
+const recordButtonText = ref('Зафиксировать')
+const recordButtonGreen = ref(false)
+const recordingTimeout = ref<number | null>(null)
+const editLoading = ref(false)
+
+// ── Computed ───────────────────────────────────────────
+const classNameSave = computed(() => saveButtonGreen.value ? 'save-btn-green' : 'save-btn')
+const classNameRecord = computed(() => (recordButtonText.value === 'Обновлено') ? 'main-record-btn-green' : 'main-record-btn-default')
+
+// ── Toast ──────────────────────────────────────────────
 const showToast = (msg: string) => {
   toast.value = msg
   toastVisible.value = true
@@ -62,11 +64,7 @@ const showToast = (msg: string) => {
   }, 2500)
 }
 
-// Computed
-const classNameSave = computed(() => saveButtonGreen.value ? 'save-btn-green' : 'save-btn')
-const classNameRecord = computed(() => (recordButtonText.value === 'Обновлено') ? 'main-record-btn-green' : 'main-record-btn-default')
-
-// Formatters
+// ── Formatters ─────────────────────────────────────────
 const formatDateDisplay = (dateStr: string) => {
   if (!dateStr) return '—'
   const parts = dateStr.split('-')
@@ -87,17 +85,17 @@ const formatDuration = (minutes: number) => {
   return `${h}:${String(m).padStart(2, '0')}`
 }
 
-// Load settings from DB on session start
+const printModal = () => {
+  (window as any).print()
+}
+
+// ── Data loading ───────────────────────────────────────
 const loadSettings = async () => {
   try {
-    const today = new Date()
     const userId = (authStore.user as any)?.id
     const data = await getSettings()
-    let startDefault2 = new Date(today)
-    startDefault2.setDate(today.getDate() - 365)
-    let endDefault2 = new Date()
-    const startVal = data?.period_start && data.period_start.trim() ? data.period_start : formatDateForInput(startDefault2)
-    const endVal = data?.period_end && data.period_end.trim() ? data.period_end : formatDateForInput(endDefault2)
+    const startVal = data?.period_start && data.period_start.trim() ? data.period_start : formatDateForInput(startDefault)
+    const endVal = data?.period_end && data.period_end.trim() ? data.period_end : formatDateForInput(endDefault)
     if (!data) {
       await updateSettings({
         id: `${userId}-settings`,
@@ -139,6 +137,7 @@ const loadWorkLogs = async () => {
   }
 }
 
+// ── Actions ────────────────────────────────────────────
 const saveSettings = async () => {
   try {
     saveBusy.value = true
@@ -152,6 +151,7 @@ const saveSettings = async () => {
       period_end: periodEnd.value,
     })
     await loadPeriodOvertime()
+    await loadWorkLogs()
     showToast('Настройки сохранены')
     saveButtonGreen.value = true
     setTimeout(() => {
@@ -261,6 +261,7 @@ onMounted(async () => {
 
 <template>
   <div class="screen main">
+    <!-- User block -->
     <section class="user-block">
       <div class="user-avatar">{{ (authStore.user?.email ?? 'Пользователь').charAt(0) }}</div>
       <div class="user-info">
@@ -272,27 +273,28 @@ onMounted(async () => {
       </button>
     </section>
 
-    <section class="overtime-block">
-      <div class="overtime-title">Сверхнормативно отработано за период всего (чч:мм)</div>
-      <div class="overtime-value">{{ totalHours }}:{{ String(totalMinLeft).padStart(2, '0') }}</div>
-
-      <div class="period-row">
-        <span class="period-label">Период</span>
-        <div class="period-inputs">
-          <input type="date" v-model="periodStart" />
-          <span class="period-sep">—</span>
-          <input type="date" v-model="periodEnd" />
+    <!-- Period & time block (single row) -->
+    <section class="period-time-block">
+      <div class="period-time-row">
+        <div class="period-control">
+          <label class="period-label">Период</label>
+          <div class="period-inputs">
+            <input type="date" v-model="periodStart" />
+            <span class="period-sep">—</span>
+            <input type="date" v-model="periodEnd" />
+          </div>
         </div>
-      </div>
 
-      <div class="time-row">
-        <span class="time-label">Время после которого начинается переработка</span>
-        <div class="time-inputs">
-          <input type="number" v-model.number="overtimeHours" min="0" max="23" placeholder="Часы" />
-          <span class="time-colon">:</span>
-          <input type="number" v-model.number="overtimeMinutes" min="0" max="59" placeholder="Минуты" />
+        <div class="time-control">
+          <label class="time-label">Время после которого начинается переработка</label>
+          <div class="time-inputs">
+            <input type="number" v-model.number="overtimeHours" min="0" max="23" placeholder="Часы" />
+            <span class="time-colon">:</span>
+            <input type="number" v-model.number="overtimeMinutes" min="0" max="59" placeholder="Минуты" />
+          </div>
         </div>
-        <div class="save-row">
+
+        <div class="save-action">
           <button class="save-btn" @click="saveSettings" :disabled="saveLoading || saveBusy" :class="[classNameSave, { 'save-btn-green': saveButtonGreen }]">
             {{ saveLoading ? 'Сохраняю...' : saveButtonText }}
           </button>
@@ -300,30 +302,39 @@ onMounted(async () => {
       </div>
     </section>
 
+    <!-- Fix button (circular) -->
     <div class="record-center">
       <button class="main-record-btn" @click="emitRecord" :disabled="recordLoading" :class="[classNameRecord, { 'main-record-btn-green': recordButtonText === 'Обновлено' }]">
         <span>{{ recordButtonText }}</span>
       </button>
     </div>
 
+    <!-- Generate report button -->
     <div class="results-block">
       <button class="report-btn" @click="openReport">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+        </svg>
         <span>Вывести отчёт за выбранный период</span>
       </button>
     </div>
 
+    <!-- Install note -->
     <div class="hint-box">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="8"/></svg>
-      <span>
-        <strong>Как добавить на домашний экран:</strong>
-        <ul style="margin: 6px 0 0 18px; padding: 0;">
-          <li><strong>iOS (Safari):</strong> Нажмите «Поделиться» («Share»), выберите «Добавить на домашний экран», дайте имя ярлыку и нажмите «Добавить».</li>
-          <li><strong>Android (Chrome):</strong> Откройте меню (три точки), выберите «Добавить на экран», назовите ярлык и нажмите «Добавить».</li>
-        </ul>
-      </span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="16" x2="12" y2="12"/>
+        <line x1="12" y1="8" x2="12" y2="8"/>
+      </svg>
+      <span><strong>Как добавить на домашний экран:</strong></span>
+      <ul style="margin: 6px 0 0 18px; padding: 0;">
+        <li><strong>iOS (Safari):</strong> Нажмите «Поделиться» («Share»), выберите «Добавить на домашний экран», дайте имя ярлыку и нажмите «Добавить».</li>
+        <li><strong>Android (Chrome):</strong> Откройте меню (три точки), выберите «Добавить на экран», назовите ярлык и нажмите «Добавить».</li>
+      </ul>
     </div>
 
+    <!-- Report modal -->
     <div v-if="reportOpen" class="report-modal" @click.self="closeReport">
       <div class="report-modal-content">
         <div class="report-modal-header">
@@ -358,7 +369,10 @@ onMounted(async () => {
                 <td>
                   <div class="actions-cell">
                     <button class="edit-btn" @click="startEdit(log)">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                        <path d="M12 20h9"/>
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                      </svg>
                     </button>
                     <button class="close-btn" @click="deleteLog(log)">✕</button>
                   </div>
@@ -366,6 +380,10 @@ onMounted(async () => {
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="report-footer">
+          <button class="print-action-btn" @click="printModal()">Печать</button>
+          <button class="close-action-btn" @click="closeReport">Закрыть</button>
         </div>
       </div>
     </div>
@@ -380,10 +398,11 @@ onMounted(async () => {
   background: #f0f4ff;
   padding: 24px 32px 40px;
   gap: 20px;
-  max-width: 640px;
+  max-width: 700px;
   margin: 0 auto;
 }
 
+/* ── User block ─────────────────────────────────────── */
 .user-block {
   display: flex;
   align-items: center;
@@ -446,53 +465,44 @@ onMounted(async () => {
   color: #1a1d21;
 }
 
-.overtime-block {
+/* ── Period & time block (single row) ────────────────── */
+.period-time-block {
   background: #ffffff;
   border: 1px solid #e5e8ef;
   border-radius: 14px;
   padding: 20px 24px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
-  text-align: center;
 }
 
-.overtime-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #555b66;
-  margin-bottom: 4px;
-  text-align: center;
-}
-
-.overtime-value {
-  font-size: 32px;
-  font-weight: 700;
-  color: #2563eb;
-  margin-bottom: 16px;
-  text-align: center;
-}
-
-.period-row {
+.period-time-row {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 16px;
-  margin-bottom: 16px;
 }
 
-.period-label {
+.period-control,
+.time-control {
+  flex: 1;
+  min-width: 0;
+}
+
+.period-label,
+.time-label {
   font-size: 14px;
   font-weight: 600;
   color: #555b66;
-  min-width: 80px;
+  display: block;
+  margin-bottom: 8px;
 }
 
 .period-inputs {
-  flex: 1;
   display: flex;
   gap: 12px;
 }
 
 .period-inputs input {
   flex: 1;
+  min-width: 0;
   padding: 10px 14px;
   border: 1px solid #d1d5db;
   border-radius: 10px;
@@ -512,19 +522,6 @@ onMounted(async () => {
   font-weight: 700;
 }
 
-.time-row {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.time-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: #555b66;
-}
-
 .time-inputs {
   display: flex;
   gap: 12px;
@@ -532,6 +529,7 @@ onMounted(async () => {
 
 .time-inputs input {
   flex: 1;
+  min-width: 0;
   padding: 10px 14px;
   border: 1px solid #d1d5db;
   border-radius: 10px;
@@ -546,9 +544,16 @@ onMounted(async () => {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
-.save-row {
+.time-colon {
+  color: #9ca3af;
+  font-weight: 700;
+  padding-bottom: 10px;
+}
+
+.save-action {
+  flex: 0 0 auto;
   display: flex;
-  justify-content: flex-start;
+  justify-content: flex-end;
 }
 
 .save-btn {
@@ -578,6 +583,7 @@ onMounted(async () => {
   background: #15803d !important;
 }
 
+/* ── Fix button (circular) ───────────────────────────── */
 .record-center {
   display: flex;
   justify-content: center;
@@ -622,6 +628,7 @@ onMounted(async () => {
   border-color: #15803d !important;
 }
 
+/* ── Generate report button ──────────────────────────── */
 .results-block {
   text-align: center;
   margin-bottom: 12px;
@@ -641,6 +648,9 @@ onMounted(async () => {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
+  max-width: 400px;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .report-btn:hover {
@@ -653,6 +663,7 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 
+/* ── Install note ────────────────────────────────────── */
 .hint-box {
   background: #eff6ff;
   border: 1px solid #bae6fd;
@@ -676,6 +687,13 @@ onMounted(async () => {
   margin-bottom: 6px;
 }
 
+.hint-box ul {
+  margin: 6px 0 0 18px;
+  padding: 0;
+  list-style: disc;
+}
+
+/* ── Report modal ────────────────────────────────────── */
 .report-modal {
   position: fixed;
   inset: 0;
@@ -811,7 +829,6 @@ onMounted(async () => {
 }
 
 .edit-btn {
-  margin-left: 8px;
   padding: 6px 12px;
   background: #f3f4f6;
   color: #6b7280;
@@ -828,25 +845,46 @@ onMounted(async () => {
   color: #1a1d21;
 }
 
-.close-btn {
-  width: 36px;
-  height: 36px;
-  border: none;
-  background: #f3f4f6;
-  border-radius: 8px;
-  color: #6b7280;
-  cursor: pointer;
+.report-footer {
   display: flex;
-  align-items: center;
+  gap: 12px;
   justify-content: center;
+  padding: 16px 24px;
+  border-top: 1px solid #e5e8ef;
+}
+
+.print-action-btn,
+.close-action-btn {
+  flex: 1;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
   transition: all 0.2s;
 }
 
-.close-btn:hover {
+.print-action-btn {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.print-action-btn:hover {
+  background: #1d4ed8;
+}
+
+.close-action-btn {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.close-action-btn:hover {
   background: #e5e7eb;
   color: #1a1d21;
 }
 
+/* ── Responsive ──────────────────────────────────────── */
 @media (max-width: 768px) {
   .screen.main {
     padding: 16px 16px 28px;
@@ -863,40 +901,23 @@ onMounted(async () => {
     order: 3;
   }
 
-  .overtime-block {
+  .period-time-block {
     padding: 16px;
   }
 
-  .overtime-value {
-    font-size: 26px;
-  }
-
-  .period-row {
+  .period-time-row {
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
   }
 
-  .period-label {
-    min-width: auto;
-    text-align: left;
+  .period-control,
+  .time-control {
+    flex: 1 1 100%;
   }
 
-  .time-row {
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .time-label {
-    min-width: auto;
-    text-align: left;
-  }
-
-  .time-inputs {
-    width: 100%;
-  }
-
-  .time-inputs input {
-    width: 80px;
+  .save-action {
+    flex: 0 0 auto;
+    justify-content: flex-start;
   }
 
   .main-record-btn {
@@ -930,12 +951,13 @@ onMounted(async () => {
   }
 
   .report-footer {
+    flex-direction: column;
+    gap: 10px;
     padding: 12px 16px;
   }
 
-  .report-footer .print-action-btn,
-  .report-footer .close-action-btn {
-    flex: 1;
+  .print-action-btn,
+  .close-action-btn {
     padding: 12px 16px;
     font-size: 14px;
   }
@@ -963,13 +985,8 @@ onMounted(async () => {
     text-align: center;
   }
 
-  .overtime-block {
+  .period-time-block {
     padding: 14px;
-  }
-
-  .period-row {
-    flex-direction: column;
-    gap: 8px;
   }
 
   .period-inputs {
@@ -980,22 +997,17 @@ onMounted(async () => {
     width: 100%;
   }
 
-  .time-row {
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .time-label {
-    min-width: auto;
-    text-align: left;
-  }
-
   .time-inputs {
-    width: 100%;
+    flex-direction: column;
   }
 
   .time-inputs input {
     width: 100%;
+  }
+
+  .time-colon {
+    text-align: center;
+    padding-bottom: 8px;
   }
 
   .save-btn {
@@ -1036,32 +1048,5 @@ onMounted(async () => {
   .report-footer {
     padding: 10px 16px;
   }
-
-  .report-footer .print-action-btn,
-  .report-footer .close-action-btn {
-    padding: 10px 14px;
-    font-size: 13px;
-  }
-}
-
-.hint-box {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 20px;
-  background: #f0f4ff;
-  border: 1px solid #d1d5db;
-  border-radius: 12px;
-  font-size: 13px;
-  color: #555b66;
-  margin-top: 12px;
-}
-
-.hint-box svg {
-  flex-shrink: 0;
-}
-
-.hint-box span {
-  margin-left: 6px;
 }
 </style>
