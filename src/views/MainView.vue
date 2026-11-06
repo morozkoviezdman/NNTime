@@ -2,7 +2,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { getSettings, getPeriodOvertime, updateSettings, getWorkLogs, deleteWorkLog, updateNote, recordWorkSession } from '@/utils/db'
+import { getSettings, getPeriodOvertime, updateSettings, getWorkLogs, deleteWorkLog, updateNote, recordWorkSession, updateWorkLog } from '@/utils/db'
+import { supabase } from '@/supabaseClient'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -193,7 +194,12 @@ const emitRecord = async () => {
     const existingLog = workLogs.value.find((log: any) => log.date === todayStr)
 
     if (existingLog) {
-      await updateNote(existingLog.id, existingLog.note)
+      // Full overwrite: update all fields
+      const pressTime = new Date()
+      const overtimeTotal = overtimeHours.value * 60 + overtimeMinutes.value
+      const currentTotal = now.getHours() * 60 + now.getMinutes()
+      const addedMinutes = overtimeTotal - currentTotal
+      await updateWorkLog(existingLog.id, todayStr, pressTime, addedMinutes, existingLog.note ?? '')
       showToast('Сверхнорма перезаписана')
     } else {
       addedMinutes = await recordWorkSession(overtimeHours.value, overtimeMinutes.value)
@@ -227,7 +233,22 @@ const openReport = async () => {
     showToast('Сначала выберите период')
     return
   }
-  await loadWorkLogs()
+  const start = periodStart.value
+  const end = periodEnd.value
+  try {
+    const { data, error } = await supabase
+      .from('work_logs')
+      .select('*')
+      .eq('user_id', authStore.user?.id)
+      .gte('date', start)
+      .lte('date', end)
+      .order('date', { ascending: false })
+    if (error) throw error
+    workLogs.value = data as any[]
+    showToast('Отчёт за выбранный период')
+  } catch (e: any) {
+    error.value = e.message || 'Не удалось загрузить отчёт'
+  }
   reportOpen.value = true
 }
 
@@ -303,6 +324,12 @@ onMounted(async () => {
       <button class="logout-btn" @click="logout" title="Нажмите чтобы выйти с данного аккаунта">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
       </button>
+    </section>
+
+    <!-- Overtime total block -->
+    <section class="overtime-block">
+      <div class="overtime-title">Сверхнормативно отработано за период всего (чч:мм)</div>
+      <div class="overtime-value">{{ totalHours }}:{{ String(totalMinLeft).padStart(2, '0') }}</div>
     </section>
 
     <!-- Period & time block (single row) -->
@@ -542,63 +569,37 @@ onMounted(async () => {
 
 .period-time-row {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 16px;
 }
 
-.period-control,
+.period-control {
+  flex: 1;
+  min-width: 0;
+}
+
 .time-control {
-  flex: 1;
+  flex: 0 0 35%;
   min-width: 0;
 }
 
-.period-label,
 .time-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: #555b66;
   display: block;
-  margin-bottom: 8px;
-}
-
-.period-inputs {
-  display: flex;
-  gap: 12px;
-}
-
-.period-inputs input {
-  flex: 1;
-  min-width: 0;
-  padding: 10px 14px;
-  border: 1px solid #d1d5db;
-  border-radius: 10px;
-  font-size: 14px;
-  background: #f8fafc;
-  transition: border-color 0.2s;
-}
-
-.period-inputs input:focus {
-  outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-}
-
-.period-sep {
-  color: #9ca3af;
-  font-weight: 700;
+  margin-bottom: 6px;
 }
 
 .time-inputs {
   display: flex;
-  gap: 12px;
+  align-items: center;
+  gap: 10px;
 }
 
 .time-inputs input {
   flex: 1;
   min-width: 0;
-  padding: 10px 14px;
+  padding: 8px 12px;
   border: 1px solid #d1d5db;
-  border-radius: 10px;
+  border-radius: 8px;
   font-size: 14px;
   background: #f8fafc;
   transition: border-color 0.2s;
@@ -613,7 +614,7 @@ onMounted(async () => {
 .time-colon {
   color: #9ca3af;
   font-weight: 700;
-  padding-bottom: 10px;
+  padding-bottom: 8px;
 }
 
 .save-action {
@@ -623,12 +624,12 @@ onMounted(async () => {
 }
 
 .save-btn {
-  padding: 10px 20px;
+  padding: 8px 16px;
   background: #2563eb;
   color: #ffffff;
   border: none;
-  border-radius: 10px;
-  font-size: 14px;
+  border-radius: 8px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.2s;

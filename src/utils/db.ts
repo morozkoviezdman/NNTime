@@ -147,7 +147,27 @@ export async function updateSettings(updates: Partial<SettingsRow>) {
   return data
 }
 
-/** Обновить комментарий (note) по id записи */
+/** Обновить запись сверхнормы (всё поле целиком) по id записи */
+export async function updateWorkLog(id: string, date: string, pressTime: Date, overtimeMinutes: number, note: string) {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Нет сессии')
+
+  const { error } = await supabase
+    .from('work_logs')
+    .update({
+      date,
+      press_time: pressTime,
+      overtime_minutes: overtimeMinutes,
+      note,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+
+  if (error) throw error
+  return { success: true }
+}
+
+/** Обновить запись по id (дата/время/норма не меняются, меняется только комментарий) */
 export async function updateNote(id: string, note: string) {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Нет сессии')
