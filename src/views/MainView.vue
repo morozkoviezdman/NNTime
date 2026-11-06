@@ -215,12 +215,15 @@ const emitRecord = async () => {
     if (periodStart.value && periodEnd.value) {
       await loadPeriodOvertime()
       await loadWorkLogs()
-    }
-    if (recordingTimeout.value) clearTimeout(recordingTimeout.value)
-    recordingTimeout.value = window.setTimeout(() => {
+      // Reset record button state
+      if (recordingTimeout.value) clearTimeout(recordingTimeout.value)
       recordButtonText.value = 'Зафиксировать'
       recordButtonGreen.value = false
-    }, 3000)
+      recordingTimeout.value = window.setTimeout(() => {
+        recordButtonText.value = 'Зафиксировать'
+        recordButtonGreen.value = false
+      }, 3000)
+    }
   } catch (e: any) {
     error.value = e.message || 'Ошибка записи'
   } finally {
@@ -332,32 +335,32 @@ onMounted(async () => {
       <div class="overtime-value">{{ totalHours }}:{{ String(totalMinLeft).padStart(2, '0') }}</div>
     </section>
 
-    <!-- Period & time block (single row) -->
-    <section class="period-time-block">
-      <div class="period-time-row">
-        <div class="period-control">
-          <label class="period-label">Период</label>
-          <div class="period-inputs">
-            <input type="date" v-model="periodStart" />
-            <span class="period-sep">—</span>
-            <input type="date" v-model="periodEnd" />
-          </div>
+    <!-- Period block (full width) -->
+    <section class="period-block">
+      <div class="period-inputs">
+        <span class="period-label">Период</span>
+        <div class="period-inputs-group">
+          <input type="date" v-model="periodStart" />
+          <span class="period-sep">—</span>
+          <input type="date" v-model="periodEnd" />
         </div>
+      </div>
+    </section>
 
-        <div class="time-control">
-          <label class="time-label">Время после которого начинается переработка</label>
-          <div class="time-inputs">
-            <input type="number" v-model.number="overtimeHours" min="0" max="23" placeholder="Часы" />
-            <span class="time-colon">:</span>
-            <input type="number" v-model.number="overtimeMinutes" min="0" max="59" placeholder="Минуты" />
-          </div>
+    <!-- Time & save block (single row) -->
+    <section class="time-save-block">
+      <div class="time-inputs">
+        <label class="time-label">Время после которого начинается переработка</label>
+        <div class="time-field">
+          <input type="number" v-model.number="overtimeHours" min="0" max="23" placeholder="Часы" />
+          <span class="time-colon">:</span>
+          <input type="number" v-model.number="overtimeMinutes" min="0" max="59" placeholder="Минуты" />
         </div>
-
-        <div class="save-action">
-          <button class="save-btn" @click="saveSettings" :disabled="saveLoading || saveBusy" :class="[classNameSave, { 'save-btn-green': saveButtonGreen }]">
-            {{ saveLoading ? 'Сохраняю...' : saveButtonText }}
-          </button>
-        </div>
+      </div>
+      <div class="save-row">
+        <button class="save-btn" @click="saveSettings" :disabled="saveLoading || saveBusy" :class="[classNameSave, { 'save-btn-green': saveButtonGreen }]">
+          {{ saveLoading ? 'Сохраняю...' : saveButtonText }}
+        </button>
       </div>
     </section>
 
@@ -558,13 +561,37 @@ onMounted(async () => {
   color: #1a1d21;
 }
 
-/* ── Period & time block (single row) ────────────────── */
-.period-time-block {
+/* ── Overtime total block ─────────────────────────────── */
+.overtime-block {
   background: #ffffff;
   border: 1px solid #e5e8ef;
   border-radius: 14px;
   padding: 20px 24px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+  text-align: center;
+}
+
+.overtime-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #555b66;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.overtime-value {
+  font-size: 42px;
+  font-weight: 800;
+  color: #2563eb;
+  margin-bottom: 12px;
+  display: block;
+  text-align: center;
+}
+
+.overtime-value .value-unit {
+  font-size: 20px;
+  font-weight: 600;
+  color: #6b7280;
 }
 
 .period-time-row {
@@ -633,6 +660,26 @@ onMounted(async () => {
   font-weight: 600;
   cursor: pointer;
   transition: background 0.2s;
+}
+
+.save-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.save-btn-green {
+  background: #16a34a !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
+}
+
+.save-btn-green:hover {
+  background: #15803d !important;
+}
+
+.save-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .save-btn:disabled {
