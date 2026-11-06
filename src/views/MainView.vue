@@ -7,7 +7,8 @@ import { getSettings, getPeriodOvertime, updateSettings, getWorkLogs, deleteWork
 const authStore = useAuthStore()
 const router = useRouter()
 
-const loading = ref(false)
+const saveLoading = ref(false)
+const recordLoading = ref(false)
 const error = ref('')
 const toast = ref('')
 const toastVisible = ref(false)
@@ -136,7 +137,7 @@ const loadWorkLogs = async () => {
 
 const saveSettings = async () => {
   try {
-    loading.value = true
+    saveLoading.value = true
     const { id } = settings.value as any
     await updateSettings({
       id: id || crypto.randomUUID(),
@@ -156,7 +157,7 @@ const saveSettings = async () => {
   } catch (e: any) {
     error.value = e.message || 'Ошибка сохранения'
   } finally {
-    loading.value = false
+    saveLoading.value = false
   }
 }
 
@@ -164,7 +165,7 @@ const emitRecord = async () => {
   error.value = ''
   let addedMinutes = 0
   try {
-    loading.value = true
+    recordLoading.value = true
     recordButtonText.value = 'Обновлено'
     addedMinutes = await recordWorkSession(overtimeHours.value, overtimeMinutes.value)
     const msg = addedMinutes >= 60 ? `Добавлено ${Math.floor(addedMinutes / 60)} ч ${addedMinutes % 60} м` : `Добавлено ${addedMinutes} м`
@@ -180,7 +181,7 @@ const emitRecord = async () => {
   } catch (e: any) {
     error.value = e.message || 'Ошибка записи'
   } finally {
-    loading.value = false
+    recordLoading.value = false
   }
 }
 
@@ -228,11 +229,6 @@ const deleteLog = async (log: any) => {
   }
 }
 
-const printReport = () => {
-  window.print()
-  showToast('Печать запущена')
-}
-
 const logout = async () => {
   try {
     await authStore.signOut()
@@ -241,6 +237,10 @@ const logout = async () => {
   } catch (e) {
     showToast('Ошибка выхода')
   }
+}
+
+const handlePrint = () => {
+  window.print()
 }
 
 onMounted(async () => {
@@ -288,16 +288,15 @@ onMounted(async () => {
           <span class="time-colon">:</span>
           <input type="number" v-model.number="overtimeMinutes" min="0" max="59" placeholder="Минуты" />
         </div>
-        <button class="save-btn" @click="saveSettings" :disabled="loading" :class="[classNameSave, { 'save-btn-green': saveButtonGreen }]">
-          {{ loading ? 'Сохраняю...' : saveButtonText }}
+        <button class="save-btn" @click="saveSettings" :disabled="saveLoading" :class="[classNameSave, { 'save-btn-green': saveButtonGreen }]">
+          {{ saveLoading ? 'Сохраняю...' : saveButtonText }}
         </button>
       </div>
     </section>
 
     <div class="record-center">
-      <button class="main-record-btn" @click="emitRecord" :disabled="loading" :class="[classNameRecord, { 'main-record-btn-green': recordButtonText === 'Обновлено' }]">
-        <span v-if="!loading">{{ recordButtonText }}</span>
-        <span v-else style="display:none">{{ recordButtonText }}</span>
+      <button class="main-record-btn" @click="emitRecord" :disabled="recordLoading" :class="[classNameRecord, { 'main-record-btn-green': recordButtonText === 'Обновлено' }]">
+        <span>{{ recordButtonText }}</span>
       </button>
     </div>
 
@@ -342,7 +341,6 @@ onMounted(async () => {
                   </template>
                 </td>
                 <td>
-                  <button class="print-btn" @click="printReport">Печать</button>
                   <button class="close-btn" @click="deleteLog(log)">✕</button>
                 </td>
               </tr>
@@ -351,13 +349,12 @@ onMounted(async () => {
         </div>
 
         <div class="report-footer">
-          <button class="print-action-btn" @click="printReport">Печать</button>
+          <button class="print-action-btn" @click="handlePrint">Печать</button>
           <button class="close-action-btn" @click="closeReport">✕ Закрыть окно</button>
         </div>
       </div>
     </div>
   </div>
-
 </template>
 
 <style scoped>
@@ -784,23 +781,6 @@ onMounted(async () => {
   color: #1a1d21;
 }
 
-.print-btn {
-  padding: 6px 12px;
-  background: #ffffff;
-  color: #6b7280;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
-}
-
-.print-btn:hover {
-  background: #f3f4f6;
-  border-color: #9ca3af;
-}
-
 .report-footer {
   display: flex;
   justify-content: flex-end;
@@ -841,57 +821,6 @@ onMounted(async () => {
 
 .close-action-btn:hover {
   background: #4b5563;
-}
-
-@media print {
-  .screen.main {
-    max-width: 100%;
-    padding: 0;
-  }
-
-  .user-block,
-  .overtime-block,
-  .results-block,
-  .report-btn,
-  .main-record-btn {
-    display: none !important;
-  }
-
-  .report-modal {
-    background: #ffffff;
-    position: static;
-    display: block;
-    padding: 0;
-    opacity: 1;
-    z-index: 1;
-  }
-
-  .report-modal-content {
-    box-shadow: none;
-    border-radius: 0;
-    max-width: 100%;
-    max-height: none;
-    overflow: visible;
-  }
-
-  .report-modal-header,
-  .report-footer {
-    display: none;
-  }
-
-  .report-table-wrap {
-    overflow: visible;
-    padding: 0;
-  }
-
-  .report-table th,
-  .report-table td {
-    border: 1px solid #e5e8ef;
-  }
-
-  .report-table tbody tr {
-    break-inside: avoid;
-  }
 }
 
 @media (max-width: 768px) {
