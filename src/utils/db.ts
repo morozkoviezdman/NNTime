@@ -50,6 +50,23 @@ export async function deleteWorkLog(id: string) {
   return { success: true }
 }
 
+/** Найти запись пользователя за конкретную дату (прямо в базе, не в памяти). */
+export async function getWorkLogByDate(date: string) {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Нет сессии')
+
+  const { data, error } = await supabase
+    .from('work_logs')
+    .select('id, date, overtime_minutes, note')
+    .eq('user_id', session.user.id)
+    .eq('date', date)
+    .limit(1)
+
+  if (error) throw error
+  const rows = (data ?? []) as any[]
+  return rows.length ? rows[0] : null
+}
+
 /** Записать конец смены (создать новую запись). */
 export async function recordWorkSession(endOfDayHour: number = 18, endOfDayMinute: number = 0) {
   const { data: { session } } = await supabase.auth.getSession()

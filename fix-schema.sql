@@ -59,7 +59,18 @@ CREATE POLICY work_logs_update ON work_logs
 CREATE POLICY work_logs_delete ON work_logs
   FOR DELETE TO authenticated USING (auth.uid() = user_id);
 
--- 4. Проверка результата
+-- 4. Одна запись на дату: убрать дубли и запретить новые
+--    Дубли появлялись, пока приложение искало запись в памяти, а не в базе.
+DELETE FROM work_logs a
+USING work_logs b
+WHERE a.user_id = b.user_id
+  AND a.date = b.date
+  AND (a.created_at < b.created_at OR (a.created_at = b.created_at AND a.id < b.id));
+
+CREATE UNIQUE INDEX IF NOT EXISTS work_logs_user_date_uniq
+  ON work_logs(user_id, date);
+
+-- 5. Проверка результата
 -- SELECT column_name FROM information_schema.columns
 --  WHERE table_name = 'settings' ORDER BY column_name;
 -- SELECT column_name FROM information_schema.columns

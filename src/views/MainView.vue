@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { getSettings, getPeriodOvertime, updateSettings, getWorkLogs, deleteWorkLog, updateNote, recordWorkSession, updateWorkLog } from '@/utils/db'
+import { getSettings, getPeriodOvertime, updateSettings, getWorkLogs, getWorkLogByDate, deleteWorkLog, updateNote, recordWorkSession, updateWorkLog } from '@/utils/db'
 import { supabase } from '@/supabaseClient'
 
 const authStore = useAuthStore()
@@ -213,14 +213,15 @@ const emitRecord = async () => {
       }
     }
 
-    // 2. Есть ли запись за эту дату
+    // 2. Ищем запись за эту дату ПРЯМО В БАЗЕ (список в памяти может быть пустым/устаревшим)
     const todayStr = formatDateForInput(now)
-    const existingLog = workLogs.value.find((log: any) => String(log.date).slice(0, 10) === todayStr)
+    const existingLog = await getWorkLogByDate(todayStr)
 
     if (existingLog) {
       // Полная перезапись: дата, время, сверхнорма, комментарий
       const overtimeMins = Math.max(0, currentTotalMinutes - overtimeTotalMinutes)
-      await updateWorkLog(existingLog.id, todayStr, now, overtimeMins, existingLog.note ?? '')
+      await updateWorkLog(existingLog.id, todayStr, now, overtimeMins, (existingLog as any).note ?? '')
+      console.info('[record] перезаписана запись:', existingLog.id, 'минут:', overtimeMins)
       showToast('Сверхнорма перезаписана')
     } else {
       const res = await recordWorkSession(overtimeHours.value, overtimeMinutes.value)
