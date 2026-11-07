@@ -458,6 +458,9 @@ onMounted(async () => {
           <h3>Отчёт за выбранный период</h3>
           <button class="close-btn" @click="closeReport" title="Закрыть">✕</button>
         </div>
+        <div class="print-only print-title">
+          Отчёт за период {{ formatDateDisplay(periodStart) }} — {{ formatDateDisplay(periodEnd) }}
+        </div>
         <div class="report-table-wrap">
           <table class="report-table">
             <thead>
@@ -466,7 +469,7 @@ onMounted(async () => {
                 <th>Время выхода</th>
                 <th>Сверхнорма</th>
                 <th>Комментарий</th>
-                <th>Действия</th>
+                <th class="col-actions">Действия</th>
               </tr>
             </thead>
             <tbody>
@@ -488,7 +491,7 @@ onMounted(async () => {
                     <span class="note-text">{{ log.note ?? '—' }}</span>
                   </template>
                 </td>
-                                <td>
+                                <td class="col-actions">
                                   <div class="actions-cell">
                                     <button class="edit-btn" @click="startEdit(log)" title="Редактировать запись">
                                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
@@ -1195,6 +1198,155 @@ onMounted(async () => {
 
   .report-footer {
     padding: 10px 16px;
+  }
+}
+</style>
+
+<!-- Печать отчёта: печатается вся таблица, а не видимая часть модального окна -->
+<style>
+.print-only {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 10mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* скрываем всё, кроме модального окна отчёта */
+  .screen.main > *:not(.report-modal) {
+    display: none !important;
+  }
+
+  .screen.main {
+    display: block !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    background: #fff !important;
+    gap: 0 !important;
+  }
+
+  .report-modal {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    background: #fff !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    width: 100% !important;
+  }
+
+  .report-modal-content {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  .report-modal-header {
+    display: block !important;
+    padding: 0 0 8px !important;
+    border-bottom: 1px solid #000 !important;
+  }
+
+  .report-modal-header h3 {
+    font-size: 14pt !important;
+    margin: 0 !important;
+    color: #000 !important;
+  }
+
+  /* кнопки и колонка действий на печати не нужны */
+  .report-modal-header .close-btn,
+  .report-footer,
+  .col-actions,
+  .actions-cell,
+  .empty-cell {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+    font-size: 10pt !important;
+    margin: 6px 0 10px !important;
+    color: #000 !important;
+  }
+
+  .report-table-wrap {
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .report-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 10pt !important;
+  }
+
+  /* заголовок таблицы повторяется на каждой странице */
+  .report-table thead {
+    display: table-header-group !important;
+  }
+
+  .report-table tfoot {
+    display: table-footer-group !important;
+  }
+
+  /* строки не разрываются между страницами */
+  .report-table tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .report-table th,
+  .report-table td {
+    border: 1px solid #666 !important;
+    padding: 6px 8px !important;
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  .report-table th {
+    background: #eee !important;
+    font-weight: 700 !important;
+  }
+
+  /* комментарий переносится, колонка не растягивает таблицу */
+  .note-text {
+    max-width: none !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+    color: #000 !important;
+  }
+
+  .comment-cell {
+    min-width: 0 !important;
+  }
+
+  .note-input,
+  .save-edit-btn,
+  .edit-btn {
+    display: none !important;
   }
 }
 </style>
