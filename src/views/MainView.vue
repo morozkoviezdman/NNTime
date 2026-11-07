@@ -555,7 +555,7 @@ onMounted(async () => {
   border-radius: 14px;
   padding: 16px 20px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
-  text-align: center;
+  text-align: left;
 }
 
 .user-avatar {
@@ -574,7 +574,7 @@ onMounted(async () => {
 .user-info {
   flex: 1;
   min-width: 0;
-  text-align: center;
+  text-align: left;
 }
 
 .user-name {
@@ -805,16 +805,20 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 20px 32px;
+  width: clamp(200px, 58vw, 240px);
+  height: clamp(200px, 58vw, 240px);
+  padding: 0 12px;
+  text-align: center;
+  line-height: 1.15;
   border: 3px solid #2563eb;
-  border-radius: 200px;
+  border-radius: 50%;
   background: #ffffff;
   color: #2563eb;
-  font-size: 28px;
+  font-size: clamp(20px, 5.2vw, 26px);
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s;
+  flex: 0 0 auto;
 }
 
 .main-record-btn:hover {
@@ -1339,13 +1343,42 @@ onMounted(async () => {
   }
 
   .user-block {
-    flex-wrap: wrap;
-    gap: 12px;
+    flex-wrap: nowrap;
+    gap: 10px;
+    padding: 14px 16px;
+    text-align: left;
+  }
+
+  .user-avatar {
+    width: 42px;
+    height: 42px;
+    font-size: 18px;
+    flex: 0 0 auto;
   }
 
   .user-info {
-    width: 100%;
-    order: 3;
+    width: auto;
+    order: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: left;
+  }
+
+  .user-name {
+    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .user-role {
+    font-size: 12px;
+  }
+
+  .logout-btn {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
   }
 
   .period-time-block {
@@ -1368,9 +1401,9 @@ onMounted(async () => {
   }
 
   .main-record-btn {
-    width: 200px;
-    height: 200px;
-    font-size: 28px;
+    width: clamp(220px, 70vw, 270px);
+    height: clamp(220px, 70vw, 270px);
+    font-size: clamp(22px, 6vw, 28px);
   }
 
   .results-block {
@@ -1417,9 +1450,12 @@ onMounted(async () => {
   }
 
   .user-block {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
     gap: 10px;
+    padding: 12px 14px;
+    text-align: left;
   }
 
   .user-avatar {
@@ -1429,7 +1465,20 @@ onMounted(async () => {
   }
 
   .user-info {
-    text-align: center;
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: left;
+  }
+
+  .user-name {
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .user-role {
+    font-size: 12px;
   }
 
   .settings-block {
@@ -1526,9 +1575,10 @@ onMounted(async () => {
   }
 
   .main-record-btn {
-    width: 160px;
-    height: 160px;
-    font-size: 34px;
+    width: clamp(200px, 62vw, 240px);
+    height: clamp(200px, 62vw, 240px);
+    font-size: clamp(19px, 5.4vw, 24px);
+    padding: 0 8px;
   }
 
   .results-block {

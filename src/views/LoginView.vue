@@ -11,6 +11,7 @@ const password = ref('')
 const mode = ref<'login' | 'signup'>('login')
 const loading = ref(false)
 const error = ref('')
+const notice = ref('')
 
 const switchMode = () => {
   mode.value = mode.value === 'login' ? 'signup' : 'login'
@@ -28,15 +29,27 @@ const signInWithOAuth = async (provider: 'google') => {
 const handleSubmit = async (e: Event) => {
   e.preventDefault()
   error.value = ''
+  notice.value = ''
   loading.value = true
 
   try {
     if (mode.value === 'login') {
       await authStore.signInWithPassword(email.value, password.value)
+      router.push('/app')
     } else {
-      await authStore.signUp(email.value, password.value)
+      // ссылка в письме подтверждения должна вести на /NNTime/, а не на корень
+      const base = import.meta.env.BASE_URL || '/'
+      const res = await authStore.signUp(email.value, password.value, {
+        emailRedirectTo: `${window.location.origin}${base}`,
+      })
+      if (!res.session) {
+        notice.value = `Аккаунт создан. Мы отправили письмо на ${email.value} — подтвердите адрес, затем войдите.`
+        mode.value = 'login'
+        password.value = ''
+      } else {
+        router.push('/app')
+      }
     }
-    router.push('/app')
   } catch (err: any) {
     error.value = err.message || 'Ошибка авторизации'
   } finally {
@@ -82,6 +95,7 @@ onMounted(async () => {
       </form>
 
       <p v-if="error" class="error">{{ error }}</p>
+      <p v-if="notice" class="notice">{{ notice }}</p>
 
       <div class="oauth-buttons">
         <p>Или войдите через:</p>
@@ -175,6 +189,17 @@ onMounted(async () => {
   font-size: 13px;
   background: #fef2f2;
   border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.notice {
+  margin: 12px 0 0;
+  color: #1e40af;
+  font-size: 13px;
+  line-height: 1.5;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
   border-radius: 6px;
   padding: 8px 10px;
 }
