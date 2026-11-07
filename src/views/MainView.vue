@@ -110,6 +110,7 @@ const loadSettings = async () => {
         updated_at: new Date().toISOString(),
       })
     }
+    settings.value = data ?? null
     periodStart.value = startVal
     periodEnd.value = endVal
     overtimeHours.value = data?.end_of_shift_hour ?? 18
@@ -148,7 +149,7 @@ const saveSettings = async () => {
     saveLoading.value = true
     const id = settings.value?.id
     await updateSettings({
-      id: id || crypto.randomUUID(),
+      id: id || `${authStore.user?.id}-settings`,
       end_of_shift_hour: overtimeHours.value,
       end_of_shift_minute: overtimeMinutes.value,
       period_start: periodStart.value,
@@ -157,8 +158,10 @@ const saveSettings = async () => {
     await loadPeriodOvertime()
     await loadWorkLogs()
     showToast('Настройки сохранены')
+    saveButtonText.value = 'Обновлено'
     saveButtonGreen.value = true
     setTimeout(() => {
+      saveButtonText.value = 'Сохранить'
       saveButtonGreen.value = false
     }, 3000)
   } catch (e: any) {
@@ -205,25 +208,16 @@ const emitRecord = async () => {
       addedMinutes = await recordWorkSession(overtimeHours.value, overtimeMinutes.value)
       const msg = addedMinutes >= 60 ? `Добавлено ${Math.floor(addedMinutes / 60)} ч ${addedMinutes % 60} м` : `Добавлено ${addedMinutes} м`
       showToast(msg)
-      if (recordingTimeout.value) clearTimeout(recordingTimeout.value)
-      recordingTimeout.value = window.setTimeout(() => {
-        recordButtonText.value = 'Зафиксировать'
-        recordButtonGreen.value = false
-      }, 3000)
     }
 
-    if (periodStart.value && periodEnd.value) {
-      await loadPeriodOvertime()
-      await loadWorkLogs()
-      // Reset record button state
-      if (recordingTimeout.value) clearTimeout(recordingTimeout.value)
+    // 3. Сброс состояния кнопки через 3 секунды (везде, без исключений)
+    if (recordingTimeout.value) clearTimeout(recordingTimeout.value)
+    recordButtonText.value = 'Зафиксировать'
+    recordButtonGreen.value = false
+    recordingTimeout.value = window.setTimeout(() => {
       recordButtonText.value = 'Зафиксировать'
       recordButtonGreen.value = false
-      recordingTimeout.value = window.setTimeout(() => {
-        recordButtonText.value = 'Зафиксировать'
-        recordButtonGreen.value = false
-      }, 3000)
-    }
+    }, 3000)
   } catch (e: any) {
     error.value = e.message || 'Ошибка записи'
   } finally {
