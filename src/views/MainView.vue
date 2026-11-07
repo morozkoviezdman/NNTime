@@ -529,10 +529,10 @@ onMounted(async () => {
                 </td>
               </tr>
               <tr v-for="(log, index) in filteredLogs" :key="index">
-                <td>{{ formatDateDisplay(log.date) }}</td>
-                <td>{{ formatTime(log.press_time) }}</td>
-                <td>{{ formatDuration(log.overtime_minutes) }}</td>
-                <td class="comment-cell">
+                <td data-label="Дата">{{ formatDateDisplay(log.date) }}</td>
+                <td data-label="Время выхода">{{ formatTime(log.press_time) }}</td>
+                <td data-label="Сверхнорма">{{ formatDuration(log.overtime_minutes) }}</td>
+                <td class="comment-cell" data-label="Комментарий">
                   <template v-if="editingId === log.id">
                     <input v-model="currentNote" class="note-input" />
                     <button class="save-edit-btn" @click="saveEdit" title="Сохранить">Сохранить</button>
@@ -1720,6 +1720,108 @@ onMounted(async () => {
 
   .report-footer {
     padding: 10px 16px;
+  }
+}
+
+/* Отчёт на телефоне: таблица превращается в карточки */
+@media screen and (max-width: 600px) {
+  .report-filters {
+    padding: 10px 14px 0;
+    gap: 6px;
+  }
+
+  .filter-chip {
+    height: 28px;
+    padding: 0 11px;
+    font-size: 12px;
+  }
+
+  .filter-summary {
+    font-size: 11px;
+  }
+
+  .report-table-wrap {
+    padding: 8px 14px 4px;
+    overflow-x: visible;
+  }
+
+  .report-table {
+    display: block;
+    width: 100%;
+    font-size: 14px;
+  }
+
+  .report-table thead {
+    display: none;
+  }
+
+  .report-table tbody,
+  .report-table tr,
+  .report-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .report-table tr {
+    border: 1px solid #e8ecf4;
+    border-radius: 12px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    background: #ffffff;
+  }
+
+  .report-table tr:hover {
+    background: #ffffff;
+  }
+
+  .report-table td {
+    border: none;
+    padding: 3px 0;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    overflow-wrap: anywhere;
+  }
+
+  .report-table td::before {
+    content: attr(data-label);
+    flex: 0 0 104px;
+    color: #8b93a1;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .report-table td.empty-cell {
+    display: block;
+    text-align: center;
+    padding: 12px 0;
+  }
+
+  .report-table td.empty-cell::before {
+    content: none;
+  }
+
+  .report-table td.comment-cell {
+    display: block;
+    padding-top: 4px;
+  }
+
+  .report-table td.comment-cell::before {
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  .report-table td.col-actions {
+    justify-content: flex-end;
+    padding-top: 8px;
+  }
+
+  .report-table td.col-actions::before {
+    content: none;
+  }
+
+  .note-text {
+    max-width: none;
   }
 }
 </style>
