@@ -5,6 +5,21 @@ import { supabase } from '@/supabaseClient'
 export type WorkLogEntry = Database['public']['Tables']['work_logs']['Row']
 export type SettingsRow = Database['public']['Tables']['settings']['Row']
 
+/**
+ * Достаёт имя отсутствующей в базе колонки из ошибки Supabase.
+ * PostgREST отвечает двумя разными формами:
+ *   PGRST204: Could not find the 'updated_at' column of 'work_logs' in the schema cache
+ *   Postgres 42703: column "updated_at" does not exist
+ */
+function missingColumn(err: any): string | null {
+  const msg = String(err?.message ?? '')
+  const a = /Could not find the '([a-z_]+)' column/i.exec(msg)
+  if (a) return a[1]
+  const b = /column (?:[\w]+\.)?["']?([a-z_]+)["']? does not exist/i.exec(msg)
+  if (b) return b[1]
+  return null
+}
+
 /** Получить все записи текущего пользователя (отчёт и редактирование). */
 export async function getWorkLogs() {
   const { data: { session } } = await supabase.auth.getSession()
@@ -174,9 +189,9 @@ export async function updateSettings(updates: Partial<SettingsRow>) {
 
     if (!error) return data
 
-    const missing = /column (?:settings\.)?"?([a-z_]+)"? does not exist/i.exec(error.message ?? '')
-    if (missing && missing[1] in payload) {
-      delete payload[missing[1]]
+    const col = missingColumn(error)
+    if (col && col in payload) {
+      delete payload[col]
       continue
     }
     throw error
@@ -210,9 +225,9 @@ export async function updateWorkLog(id: string, date: string, pressTime: Date, o
 
     if (!error) return { success: true }
 
-    const missing = /column (?:work_logs\.)?"?([a-z_]+)"? does not exist/i.exec(error.message ?? '')
-    if (missing && missing[1] in payload) {
-      delete payload[missing[1]]
+    const col = missingColumn(error)
+    if (col && col in payload) {
+      delete payload[col]
       continue
     }
     throw error
