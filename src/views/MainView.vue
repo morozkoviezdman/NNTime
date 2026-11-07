@@ -35,7 +35,7 @@ const currentNote = ref('')
 const editingId = ref<string | null>(null)
 const reportOpen = ref(false)
 const changesOpen = ref(false)
-const version = 'v1.0.0'
+const version = 'v1.1.0'
 const buildDate = new Date().toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric' })
 
 const saveLoading = ref(false)
@@ -404,23 +404,36 @@ onMounted(async () => {
 
     <!-- Install note -->
     <div class="hint-box">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
-        <circle cx="12" cy="12" r="10"/>
-        <line x1="12" y1="16" x2="12" y2="12"/>
-        <line x1="12" y1="8" x2="12" y2="8"/>
-      </svg>
-      <span><strong>Как добавить на домашний экран:</strong></span>
-      <ul style="margin: 6px 0 0 18px; padding: 0;">
-        <li><strong>iOS (Safari):</strong> Нажмите «Поделиться» («Share»), выберите «Добавить на домашний экран», дайте имя ярлыку и нажмите «Добавить».</li>
-        <li><strong>Android (Chrome):</strong> Откройте меню (три точки), выберите «Добавить на экран», назовите ярлык и нажмите «Добавить».</li>
-      </ul>
+      <div class="hint-head">
+        <span class="hint-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+            <rect x="5" y="2" width="14" height="20" rx="3"/>
+            <line x1="12" y1="18" x2="12" y2="18"/>
+          </svg>
+        </span>
+        <span class="hint-title">Как добавить на домашний экран</span>
+      </div>
+
+      <div class="hint-item">
+        <span class="hint-badge">iOS</span>
+        <p class="hint-text">
+          В Safari нажмите <b>«Поделиться»</b> → <b>«Добавить на домашний экран»</b> → <b>«Добавить»</b>
+        </p>
+      </div>
+
+      <div class="hint-item">
+        <span class="hint-badge">Android</span>
+        <p class="hint-text">
+          В Chrome откройте меню <b>⋮</b> → <b>«Добавить на экран»</b> (или «Установить приложение») → <b>«Добавить»</b>
+        </p>
+      </div>
     </div>
 
     <!-- Version & Changes footer -->
     <div class="version-footer">
-      <span class="version-label">Версия: {{ version }} ({{ buildDate }})</span>
+      <span class="version-label">Версия {{ version }} · {{ buildDate }}</span>
       <button class="changes-btn" @click="changesOpen = true" title="История изменений">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
           <circle cx="12" cy="12" r="10"/>
           <line x1="12" y1="16" x2="12" y2="12"/>
           <line x1="12" y1="8" x2="12" y2="8"/>
@@ -437,15 +450,21 @@ onMounted(async () => {
         </div>
         <div class="changes-list">
           <div class="change-item">
-            <span class="change-version">v1.0.0</span>
-            <span class="change-date">{{ buildDate }}</span>
+            <div class="change-head">
+              <span class="change-version">{{ version }}</span>
+              <span class="change-date">{{ buildDate }}</span>
+            </div>
             <ul class="change-list">
-              <li>Первый релиз приложения</li>
+              <li>Кнопка «Зафиксировать» корректно возвращается в исходное состояние</li>
+              <li>Повторная фиксация за ту же дату перезаписывает запись, а не создаёт дубль</li>
+              <li>Период и время сохраняются в базе и подгружаются при новом входе</li>
+              <li>Отчёт печатается целиком, с разбивкой на страницы</li>
+              <li>Оформление блока периода и времени, подсказки и истории версий</li>
             </ul>
           </div>
         </div>
         <div class="changes-footer">
-          <button class="close-btn" @click="changesOpen = false" title="Закрыть">Закрыть</button>
+          <button class="changes-close-btn" @click="changesOpen = false" title="Закрыть">Закрыть</button>
         </div>
       </div>
     </div>
@@ -857,32 +876,260 @@ onMounted(async () => {
 
 /* ── Install note ────────────────────────────────────── */
 .hint-box {
-  background: #eff6ff;
-  border: 1px solid #bae6fd;
-  border-radius: 12px;
-  padding: 16px 20px;
-  text-align: center;
+  background: #f5f8ff;
+  border: 1px solid #e2e9f7;
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
 }
 
-.hint-box svg {
+.hint-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hint-icon {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: #e6efff;
   color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.hint-box span {
+.hint-title {
   font-size: 14px;
-  color: #374151;
-}
-
-.hint-box strong {
+  font-weight: 700;
   color: #1a1d21;
-  display: block;
-  margin-bottom: 6px;
+  line-height: 1.3;
 }
 
-.hint-box ul {
-  margin: 6px 0 0 18px;
+.hint-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: #ffffff;
+  border: 1px solid #e8eefb;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.hint-badge {
+  flex: 0 0 auto;
+  min-width: 62px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: #2563eb;
+  background: #eaf1ff;
+  border-radius: 999px;
+  padding: 4px 8px;
+  margin-top: 1px;
+}
+
+.hint-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #4b5563;
+}
+
+.hint-text b {
+  color: #1a1d21;
+  font-weight: 600;
+}
+
+/* ── Version footer ──────────────────────────────────── */
+.version-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 0 2px;
+}
+
+.version-label {
+  font-size: 12px;
+  color: #8b93a1;
+  letter-spacing: 0.2px;
+}
+
+.changes-btn {
+  width: 22px;
+  height: 22px;
   padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d7dbe3;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #6b7280;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.changes-btn:hover {
+  color: #2563eb;
+  border-color: #2563eb;
+  background: #f5f8ff;
+}
+
+/* ── Changes modal ───────────────────────────────────── */
+.changes-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1100;
+}
+
+.changes-modal-content {
+  width: 100%;
+  max-width: 520px;
+  max-height: 85vh;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.changes-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #eef1f6;
+}
+
+.changes-modal-header h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #1a1d21;
+}
+
+.changes-modal-header .close-btn {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: #f3f5f9;
+  color: #6b7280;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.changes-modal-header .close-btn:hover {
+  background: #e8ecf4;
+  color: #1a1d21;
+}
+
+.changes-list {
+  padding: 16px 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.changes-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.changes-list::-webkit-scrollbar-thumb {
+  background: #dde3ee;
+  border-radius: 999px;
+}
+
+.changes-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.change-item {
+  border: 1px solid #eef1f6;
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: #fbfcfe;
+}
+
+.change-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.change-version {
+  font-size: 12px;
+  font-weight: 700;
+  color: #2563eb;
+  background: #eaf1ff;
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.change-date {
+  font-size: 12px;
+  color: #8b93a1;
+}
+
+.change-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.change-list li {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #4b5563;
   list-style: disc;
+}
+
+.changes-footer {
+  padding: 12px 18px 16px;
+  border-top: 1px solid #eef1f6;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.changes-close-btn {
+  height: 40px;
+  padding: 0 20px;
+  border: none;
+  border-radius: 10px;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+}
+
+.changes-close-btn:hover {
+  background: #1d4ed8;
 }
 
 /* ── Report modal ────────────────────────────────────── */
@@ -1224,6 +1471,29 @@ onMounted(async () => {
     margin-left: 0;
     width: 100%;
     height: 44px;
+  }
+
+  .hint-box {
+    padding: 14px;
+  }
+
+  .hint-item {
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+  }
+
+  .hint-badge {
+    min-width: 0;
+    align-self: flex-start;
+  }
+
+  .changes-modal {
+    padding: 12px;
+  }
+
+  .changes-modal-content {
+    max-height: 90vh;
   }
 
   .period-time-block {
