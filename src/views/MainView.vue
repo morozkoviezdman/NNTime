@@ -224,6 +224,7 @@ const emitRecord = async () => {
       showToast('Сверхнорма перезаписана')
     } else {
       const res = await recordWorkSession(overtimeHours.value, overtimeMinutes.value)
+      console.info('[record] вставлено в work_logs:', res.row)
       const mins = res.overtimeMinutes
       const msg = mins >= 60
         ? `Записано за ${formatDateDisplay(res.date)}: ${Math.floor(mins / 60)} ч ${mins % 60} м`

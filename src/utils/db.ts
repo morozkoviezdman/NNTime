@@ -134,45 +134,35 @@ export async function getPeriodOvertime(startDate: string, endDate: string) {
 }
 
 /**
- * В разных базах таблица settings бывает двух видов:
- *  - с user_id (настройки на пользователя),
- *  - без user_id (одна общая строка).
- * Определяем автоматически при первом чтении.
+ * Таблица settings в этой базе — одна общая строка (без user_id).
+ * Читаем без фильтра по пользователю, чтобы не генерировать лишних
+ * 400-х запросов на базах без колонки user_id.
  */
-let settingsHasUserColumn: boolean | null = null
-
-async function readSettingsRows(scoped: boolean): Promise<any[]> {
+async function readSettingsRows(): Promise<any[]> {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Нет сессии')
 
-  let q: any = supabase.from('settings').select('*')
-  if (scoped) q = q.eq('user_id', session.user.id)
-
-  const first = await q.order('updated_at', { ascending: false }).limit(1)
+  const first = await supabase
+    .from('settings')
+    .select('*')
+    .order('updated_at', { ascending: false })
+    .limit(1)
 
   if (first.error) {
-    const col = missingColumn(first.error)
-    if (col === 'user_id' && scoped) {
-      settingsHasUserColumn = false
-      return readSettingsRows(false)
-    }
-    if (col === 'updated_at') {
-      let q2: any = supabase.from('settings').select('*')
-      if (scoped) q2 = q2.eq('user_id', session.user.id)
-      const second = await q2.limit(1)
+    // на случай очень старой базы без updated_at
+    if (missingColumn(first.error) === 'updated_at') {
+      const second = await supabase.from('settings').select('*').limit(1)
       if (second.error) throw second.error
       return (second.data ?? []) as any[]
     }
     throw first.error
   }
-
-  if (scoped && settingsHasUserColumn === null) settingsHasUserColumn = true
   return (first.data ?? []) as any[]
 }
 
 /** Получить настройки (первую строку) */
 export async function getSettings(): Promise<SettingsRow | null> {
-  const rows = await readSettingsRows(settingsHasUserColumn !== false)
+  const rows = await readSettingsRows()
   return rows.length ? (rows[0] as SettingsRow) : null
 }
 
@@ -199,26 +189,18 @@ export async function updateSettings(updates: Partial<SettingsRow>) {
     let data: any = null
 
     if (existing?.id) {
-      let q: any = supabase.from('settings').update(payload).eq('id', existing.id)
-      if (settingsHasUserColumn !== false) q = q.eq('user_id', userId)
-      const res = await q.select()
+      const res = await supabase
+        .from('settings')
+        .update(payload)
+        .eq('id', existing.id)
+        .select()
       error = res.error
       data = res.data
-      if (error && missingColumn(error) === 'user_id') {
-        settingsHasUserColumn = false
-        continue
-      }
     } else {
       const id = updates.id ?? `${userId}-settings`
-      const body: Record<string, any> = { id, ...payload }
-      if (settingsHasUserColumn !== false) body.user_id = userId
-      const res = await supabase.from('settings').upsert(body, { onConflict: 'id' })
+      const res = await supabase.from('settings').upsert({ id, ...payload }, { onConflict: 'id' })
       error = res.error
       data = res.data
-      if (error && missingColumn(error) === 'user_id') {
-        settingsHasUserColumn = false
-        continue
-      }
     }
 
     if (!error) return data
