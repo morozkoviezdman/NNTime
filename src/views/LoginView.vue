@@ -11,6 +11,7 @@ const password = ref('')
 const mode = ref<'login' | 'signup'>('login')
 const loading = ref(false)
 const error = ref('')
+const brandIcon = `${import.meta.env.BASE_URL}icon.svg`
 const notice = ref('')
 
 const switchMode = () => {
@@ -69,6 +70,7 @@ onMounted(async () => {
   <div class="screen auth">
     <div class="card">
       <div class="brand">
+        <img class="brand-logo" :src="brandIcon" alt="" width="46" height="46" />
         <span class="brand-name">NNTime</span>
         <span class="brand-sub">учёт сверхнормативного времени</span>
       </div>
@@ -143,6 +145,14 @@ onMounted(async () => {
   align-items: center;
   gap: 2px;
   margin-bottom: 18px;
+}
+
+.brand-logo {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.25);
 }
 
 .brand-name {

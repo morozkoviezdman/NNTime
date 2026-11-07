@@ -42,7 +42,8 @@ const filteredLogs = computed(() => {
   return workLogs.value.filter((log: any) => (log.overtime_minutes ?? 0) > minMinutes)
 })
 const changesOpen = ref(false)
-const version = 'v1.1.0'
+const version = 'v1.2.0'
+const brandIcon = `${import.meta.env.BASE_URL}icon.svg`
 const buildDate = new Date().toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric' })
 
 const saveLoading = ref(false)
@@ -347,6 +348,7 @@ onMounted(async () => {
   <div class="screen main">
     <!-- App brand -->
     <div class="app-header">
+      <img class="app-logo" :src="brandIcon" alt="" width="26" height="26" />
       <span class="app-brand">NNTime</span>
       <span class="app-brand-sub">сверхнормативное время</span>
     </div>
@@ -578,9 +580,16 @@ onMounted(async () => {
 /* ── App brand ──────────────────────────────────────── */
 .app-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
+}
+
+.app-logo {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  flex: 0 0 auto;
 }
 
 .app-brand {
