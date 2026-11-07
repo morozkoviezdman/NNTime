@@ -115,35 +115,47 @@ export async function getPeriodOvertime(startDate: string, endDate: string) {
   }
 }
 
-/** Получить настройки (первую строку) */
-export async function getSettings(): Promise<SettingsRow | null> {
+/**
+ * В разных базах таблица settings бывает двух видов:
+ *  - с user_id (настройки на пользователя),
+ *  - без user_id (одна общая строка).
+ * Определяем автоматически при первом чтении.
+ */
+let settingsHasUserColumn: boolean | null = null
+
+async function readSettingsRows(scoped: boolean): Promise<any[]> {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Нет сессии')
 
-  // ВАЖНО: maybeSingle() падает с ошибкой, если у пользователя больше одной строки
-  // настроек (так бывало из-за старых версий, создававших случайный id).
-  // Поэтому читаем список и берём самую свежую строку.
-  let { data, error } = await supabase
-    .from('settings')
-    .select('*')
-    .eq('user_id', session.user.id)
-    .order('updated_at', { ascending: false })
-    .limit(1)
+  let q: any = supabase.from('settings').select('*')
+  if (scoped) q = q.eq('user_id', session.user.id)
 
-  // На случай очень старой базы без колонки updated_at
-  if (error && /updated_at/i.test(error.message ?? '')) {
-    const retry = await supabase
-      .from('settings')
-      .select('*')
-      .eq('user_id', session.user.id)
-      .limit(1)
-    data = retry.data
-    error = retry.error
+  const first = await q.order('updated_at', { ascending: false }).limit(1)
+
+  if (first.error) {
+    const col = missingColumn(first.error)
+    if (col === 'user_id' && scoped) {
+      settingsHasUserColumn = false
+      return readSettingsRows(false)
+    }
+    if (col === 'updated_at') {
+      let q2: any = supabase.from('settings').select('*')
+      if (scoped) q2 = q2.eq('user_id', session.user.id)
+      const second = await q2.limit(1)
+      if (second.error) throw second.error
+      return (second.data ?? []) as any[]
+    }
+    throw first.error
   }
 
-  if (error) throw error
-  const rows = (data ?? []) as SettingsRow[]
-  return rows.length ? rows[0] : null
+  if (scoped && settingsHasUserColumn === null) settingsHasUserColumn = true
+  return (first.data ?? []) as any[]
+}
+
+/** Получить настройки (первую строку) */
+export async function getSettings(): Promise<SettingsRow | null> {
+  const rows = await readSettingsRows(settingsHasUserColumn !== false)
+  return rows.length ? (rows[0] as SettingsRow) : null
 }
 
 /** Обновить настройки */
@@ -162,29 +174,33 @@ export async function updateSettings(updates: Partial<SettingsRow>) {
 
   const existing = await getSettings()
 
-  // Пишем, отбрасывая колонки, которых нет в конкретной базе (ошибка 42703).
-  let attempts = 0
-  while (attempts < 6) {
-    attempts += 1
+  // Пишем, отбрасывая колонки, которых нет в конкретной базе
+  // (PostgREST: "Could not find the 'x' column" / Postgres 42703).
+  for (let attempt = 0; attempt < 8; attempt += 1) {
     let error: any = null
     let data: any = null
 
     if (existing?.id) {
-      const res = await supabase
-        .from('settings')
-        .update(payload)
-        .eq('id', existing.id)
-        .eq('user_id', userId)
-        .select()
+      let q: any = supabase.from('settings').update(payload).eq('id', existing.id)
+      if (settingsHasUserColumn !== false) q = q.eq('user_id', userId)
+      const res = await q.select()
       error = res.error
       data = res.data
+      if (error && missingColumn(error) === 'user_id') {
+        settingsHasUserColumn = false
+        continue
+      }
     } else {
       const id = updates.id ?? `${userId}-settings`
-      const res = await supabase
-        .from('settings')
-        .upsert({ id, user_id: userId, ...payload }, { onConflict: 'id' })
+      const body: Record<string, any> = { id, ...payload }
+      if (settingsHasUserColumn !== false) body.user_id = userId
+      const res = await supabase.from('settings').upsert(body, { onConflict: 'id' })
       error = res.error
       data = res.data
+      if (error && missingColumn(error) === 'user_id') {
+        settingsHasUserColumn = false
+        continue
+      }
     }
 
     if (!error) return data
