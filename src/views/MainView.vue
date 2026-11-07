@@ -42,6 +42,7 @@ const saveLoading = ref(false)
 const saveButtonText = ref('Сохранить')
 const saveButtonGreen = ref(false)
 const saveBusy = ref(false)
+const saveTimer = ref<number | null>(null)
 const error = ref('')
 const toast = ref('')
 const toastVisible = ref(false)
@@ -97,7 +98,7 @@ const printModal = () => {
 const loadSettings = async () => {
   try {
     const userId = (authStore.user as any)?.id
-    const data = await getSettings()
+    let data = await getSettings()
     const startVal = data?.period_start && data.period_start.trim() ? data.period_start : formatDateForInput(startDefault)
     const endVal = data?.period_end && data.period_end.trim() ? data.period_end : formatDateForInput(endDefault)
     if (!data) {
@@ -107,12 +108,13 @@ const loadSettings = async () => {
         end_of_shift_minute: 0,
         period_start: startVal,
         period_end: endVal,
-        updated_at: new Date().toISOString(),
       })
+      // перечитываем, чтобы получить реальный id и значения из БД
+      data = await getSettings()
     }
     settings.value = data ?? null
-    periodStart.value = startVal
-    periodEnd.value = endVal
+    periodStart.value = data?.period_start && data.period_start.trim() ? data.period_start : startVal
+    periodEnd.value = data?.period_end && data.period_end.trim() ? data.period_end : endVal
     overtimeHours.value = data?.end_of_shift_hour ?? 18
     overtimeMinutes.value = data?.end_of_shift_minute ?? 0
   } catch (e: any) {
@@ -143,85 +145,99 @@ const loadWorkLogs = async () => {
 }
 
 // ── Actions ────────────────────────────────────────────
+const resetSaveButton = () => {
+  if (saveTimer.value) clearTimeout(saveTimer.value)
+  saveButtonText.value = 'Сохранить'
+  saveButtonGreen.value = false
+}
+
 const saveSettings = async () => {
   try {
     saveBusy.value = true
     saveLoading.value = true
-    const id = settings.value?.id
     await updateSettings({
-      id: id || `${authStore.user?.id}-settings`,
-      end_of_shift_hour: overtimeHours.value,
-      end_of_shift_minute: overtimeMinutes.value,
+      id: settings.value?.id || `${authStore.user?.id}-settings`,
+      end_of_shift_hour: Number(overtimeHours.value) || 0,
+      end_of_shift_minute: Number(overtimeMinutes.value) || 0,
       period_start: periodStart.value,
       period_end: periodEnd.value,
     })
+    // перечитываем из БД, чтобы запомнить реальный id строки
+    await loadSettings()
     await loadPeriodOvertime()
     await loadWorkLogs()
     showToast('Настройки сохранены')
     saveButtonText.value = 'Обновлено'
     saveButtonGreen.value = true
-    setTimeout(() => {
-      saveButtonText.value = 'Сохранить'
-      saveButtonGreen.value = false
-    }, 3000)
+    if (saveTimer.value) clearTimeout(saveTimer.value)
+    saveTimer.value = window.setTimeout(resetSaveButton, 3000)
   } catch (e: any) {
     error.value = e.message || 'Ошибка сохранения'
+    showToast(e.message || 'Ошибка сохранения')
+    resetSaveButton()
   } finally {
     saveBusy.value = false
     saveLoading.value = false
   }
 }
 
+const resetRecordButton = () => {
+  if (recordingTimeout.value) clearTimeout(recordingTimeout.value)
+  recordButtonText.value = 'Зафиксировать'
+  recordButtonGreen.value = false
+  recordingTimeout.value = window.setTimeout(() => {
+    recordButtonText.value = 'Зафиксировать'
+    recordButtonGreen.value = false
+  }, 3000)
+}
+
 const emitRecord = async () => {
   error.value = ''
-  let addedMinutes = 0
   try {
     recordLoading.value = true
     recordButtonText.value = 'Обновлено'
+    recordButtonGreen.value = true
 
-    // 1. Check current time vs settings time
+    // 1. Проверка текущего времени
     const now = new Date()
     const currentTotalMinutes = now.getHours() * 60 + now.getMinutes()
     const overtimeTotalMinutes = overtimeHours.value * 60 + overtimeMinutes.value
 
     if (currentTotalMinutes < overtimeTotalMinutes) {
-      const confirmed = confirm('Текущее время меньше, чем время окончания работы в настройках.\nПереработка не возможна. Произвести запись?')
+      const confirmed = window.confirm(
+        'Текущее время меньше, чем время окончания работы в настройках.\nПереработка не возможна. Произвести запись?'
+      )
       if (!confirmed) {
-        recordLoading.value = false
+        resetRecordButton()
         return
       }
     }
 
-    // 2. Time is valid, check if record with same date exists
+    // 2. Есть ли запись за эту дату
     const todayStr = formatDateForInput(now)
-    const existingLog = workLogs.value.find((log: any) => log.date === todayStr)
+    const existingLog = workLogs.value.find((log: any) => String(log.date).slice(0, 10) === todayStr)
 
     if (existingLog) {
-      // Full overwrite: update all fields
-      const pressTime = new Date()
-      const overtimeTotal = overtimeHours.value * 60 + overtimeMinutes.value
-      const currentTotal = now.getHours() * 60 + now.getMinutes()
-      const addedMinutes = overtimeTotal - currentTotal
-      await updateWorkLog(existingLog.id, todayStr, pressTime, addedMinutes, existingLog.note ?? '')
+      // Полная перезапись: дата, время, сверхнорма, комментарий
+      const overtimeMins = Math.max(0, currentTotalMinutes - overtimeTotalMinutes)
+      await updateWorkLog(existingLog.id, todayStr, now, overtimeMins, existingLog.note ?? '')
       showToast('Сверхнорма перезаписана')
     } else {
-      addedMinutes = await recordWorkSession(overtimeHours.value, overtimeMinutes.value)
-      const msg = addedMinutes >= 60 ? `Добавлено ${Math.floor(addedMinutes / 60)} ч ${addedMinutes % 60} м` : `Добавлено ${addedMinutes} м`
+      const addedMinutes = await recordWorkSession(overtimeHours.value, overtimeMinutes.value)
+      const msg = addedMinutes >= 60
+        ? `Добавлено ${Math.floor(addedMinutes / 60)} ч ${addedMinutes % 60} м`
+        : `Добавлено ${addedMinutes} м`
       showToast(msg)
     }
 
-    // 3. Сброс состояния кнопки через 3 секунды (везде, без исключений)
-    if (recordingTimeout.value) clearTimeout(recordingTimeout.value)
-    recordButtonText.value = 'Зафиксировать'
-    recordButtonGreen.value = false
-    recordingTimeout.value = window.setTimeout(() => {
-      recordButtonText.value = 'Зафиксировать'
-      recordButtonGreen.value = false
-    }, 3000)
+    await loadPeriodOvertime()
+    await loadWorkLogs()
   } catch (e: any) {
     error.value = e.message || 'Ошибка записи'
+    showToast(e.message || 'Ошибка записи')
   } finally {
     recordLoading.value = false
+    resetRecordButton()
   }
 }
 

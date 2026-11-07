@@ -105,14 +105,30 @@ export async function getSettings(): Promise<SettingsRow | null> {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Нет сессии')
 
-  const { data, error } = await supabase
+  // ВАЖНО: maybeSingle() падает с ошибкой, если у пользователя больше одной строки
+  // настроек (так бывало из-за старых версий, создававших случайный id).
+  // Поэтому читаем список и берём самую свежую строку.
+  let { data, error } = await supabase
     .from('settings')
     .select('*')
     .eq('user_id', session.user.id)
-    .maybeSingle()
+    .order('updated_at', { ascending: false })
+    .limit(1)
+
+  // На случай очень старой базы без колонки updated_at
+  if (error && /updated_at/i.test(error.message ?? '')) {
+    const retry = await supabase
+      .from('settings')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .limit(1)
+    data = retry.data
+    error = retry.error
+  }
 
   if (error) throw error
-  return data as SettingsRow | null
+  const rows = (data ?? []) as SettingsRow[]
+  return rows.length ? rows[0] : null
 }
 
 /** Обновить настройки */
@@ -120,31 +136,52 @@ export async function updateSettings(updates: Partial<SettingsRow>) {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Нет сессии')
 
-  const now = new Date().toISOString()
-  const endOfDayHour = updates.end_of_shift_hour ?? 18
-  const endOfDayMinute = updates.end_of_shift_minute ?? 0
-  const periodStart = updates.period_start ?? '0001-01-01'
-  const periodEnd = updates.period_end ?? '9999-12-31'
   const userId = session.user.id
-  const id = updates.id ?? `${userId}-settings`
+  const payload: Record<string, any> = {
+    end_of_shift_hour: updates.end_of_shift_hour ?? 18,
+    end_of_shift_minute: updates.end_of_shift_minute ?? 0,
+    period_start: updates.period_start ?? '0001-01-01',
+    period_end: updates.period_end ?? '9999-12-31',
+    updated_at: new Date().toISOString(),
+  }
 
-  const { data, error } = await supabase
-    .from('settings')
-    .upsert(
-      {
-        id,
-        user_id: userId,
-        end_of_shift_hour: endOfDayHour,
-        end_of_shift_minute: endOfDayMinute,
-        period_start: periodStart,
-        period_end: periodEnd,
-        updated_at: now,
-      },
-      { onConflict: 'id' }
-    )
+  const existing = await getSettings()
 
-  if (error) throw error
-  return data
+  // Пишем, отбрасывая колонки, которых нет в конкретной базе (ошибка 42703).
+  let attempts = 0
+  while (attempts < 6) {
+    attempts += 1
+    let error: any = null
+    let data: any = null
+
+    if (existing?.id) {
+      const res = await supabase
+        .from('settings')
+        .update(payload)
+        .eq('id', existing.id)
+        .eq('user_id', userId)
+        .select()
+      error = res.error
+      data = res.data
+    } else {
+      const id = updates.id ?? `${userId}-settings`
+      const res = await supabase
+        .from('settings')
+        .upsert({ id, user_id: userId, ...payload }, { onConflict: 'id' })
+      error = res.error
+      data = res.data
+    }
+
+    if (!error) return data
+
+    const missing = /column (?:settings\.)?"?([a-z_]+)"? does not exist/i.exec(error.message ?? '')
+    if (missing && missing[1] in payload) {
+      delete payload[missing[1]]
+      continue
+    }
+    throw error
+  }
+  throw new Error('Не удалось сохранить настройки')
 }
 
 /** Обновить запись сверхнормы (всё поле целиком) по id записи */
@@ -152,19 +189,35 @@ export async function updateWorkLog(id: string, date: string, pressTime: Date, o
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Нет сессии')
 
-  const { error } = await supabase
-    .from('work_logs')
-    .update({
-      date,
-      press_time: pressTime,
-      overtime_minutes: overtimeMinutes,
-      note,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', id)
+  // updated_at берём только если колонка есть в базе (см. SQL-миграцию);
+  // иначе update падает и запись не перезаписывается.
+  const payload: Record<string, any> = {
+    date,
+    press_time: pressTime,
+    overtime_minutes: overtimeMinutes,
+    note,
+    updated_at: new Date().toISOString(),
+  }
 
-  if (error) throw error
-  return { success: true }
+  let attempts = 0
+  while (attempts < 4) {
+    attempts += 1
+    const { error } = await supabase
+      .from('work_logs')
+      .update(payload)
+      .eq('id', id)
+      .eq('user_id', session.user.id)
+
+    if (!error) return { success: true }
+
+    const missing = /column (?:work_logs\.)?"?([a-z_]+)"? does not exist/i.exec(error.message ?? '')
+    if (missing && missing[1] in payload) {
+      delete payload[missing[1]]
+      continue
+    }
+    throw error
+  }
+  throw new Error('Не удалось перезаписать запись')
 }
 
 /** Обновить запись по id (дата/время/норма не меняются, меняется только комментарий) */
