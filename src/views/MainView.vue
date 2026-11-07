@@ -34,6 +34,13 @@ const workLogs = ref<any[]>([])
 const currentNote = ref('')
 const editingId = ref<string | null>(null)
 const reportOpen = ref(false)
+// фильтр отчёта по величине сверхнормы: 0 — все, 1/2/3 — больше N часов
+const reportMinHours = ref(0)
+const filteredLogs = computed(() => {
+  if (!reportMinHours.value) return workLogs.value
+  const minMinutes = reportMinHours.value * 60
+  return workLogs.value.filter((log: any) => (log.overtime_minutes ?? 0) > minMinutes)
+})
 const changesOpen = ref(false)
 const version = 'v1.1.0'
 const buildDate = new Date().toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -338,6 +345,12 @@ onMounted(async () => {
 
 <template>
   <div class="screen main">
+    <!-- App brand -->
+    <div class="app-header">
+      <span class="app-brand">NNTime</span>
+      <span class="app-brand-sub">сверхнормативное время</span>
+    </div>
+
     <!-- User block -->
     <section class="user-block">
       <div class="user-avatar">{{ (authStore.user?.email ?? 'Пользователь').charAt(0) }}</div>
@@ -477,8 +490,25 @@ onMounted(async () => {
           <button class="close-btn" @click="closeReport" title="Закрыть">✕</button>
         </div>
         <div class="print-only print-title">
-          Отчёт за период {{ formatDateDisplay(periodStart) }} — {{ formatDateDisplay(periodEnd) }}
+          Отчёт за период {{ formatDateDisplay(periodStart) }} — {{ formatDateDisplay(periodEnd) }}<template v-if="reportMinHours"> · сверхнорма больше {{ reportMinHours }} ч</template>
         </div>
+
+        <div class="report-filters">
+          <button
+            v-for="opt in [{ h: 0, label: 'Все' }, { h: 1, label: '> 1 ч' }, { h: 2, label: '> 2 ч' }, { h: 3, label: '> 3 ч' }]"
+            :key="opt.h"
+            class="filter-chip"
+            :class="{ 'filter-chip-active': reportMinHours === opt.h }"
+            @click="reportMinHours = opt.h"
+            :title="opt.h ? `Показать записи со сверхнормой больше ${opt.h} ч` : 'Показать все записи за период'"
+          >
+            {{ opt.label }}
+          </button>
+          <span class="filter-summary">
+            {{ filteredLogs.length }} из {{ workLogs.length }}
+          </span>
+        </div>
+
         <div class="report-table-wrap">
           <table class="report-table">
             <thead>
@@ -491,12 +521,12 @@ onMounted(async () => {
               </tr>
             </thead>
             <tbody>
-              <tr v-if="workLogs.length === 0">
+              <tr v-if="filteredLogs.length === 0">
                 <td colspan="5" class="empty-cell">
-                  За выбранный период записей нет
+                  {{ workLogs.length === 0 ? 'За выбранный период записей нет' : 'Нет записей с такой сверхнормой' }}
                 </td>
               </tr>
-              <tr v-for="(log, index) in workLogs" :key="index">
+              <tr v-for="(log, index) in filteredLogs" :key="index">
                 <td>{{ formatDateDisplay(log.date) }}</td>
                 <td>{{ formatTime(log.press_time) }}</td>
                 <td>{{ formatDuration(log.overtime_minutes) }}</td>
@@ -543,6 +573,26 @@ onMounted(async () => {
   gap: 20px;
   max-width: 700px;
   margin: 0 auto;
+}
+
+/* ── App brand ──────────────────────────────────────── */
+.app-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+}
+
+.app-brand {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #2563eb;
+}
+
+.app-brand-sub {
+  font-size: 12px;
+  color: #8b93a1;
 }
 
 /* ── User block ─────────────────────────────────────── */
@@ -1192,16 +1242,68 @@ onMounted(async () => {
   color: #1a1d21;
 }
 
+.report-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 12px 24px 0;
+}
+
+.filter-chip {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid #d7dbe3;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.filter-chip:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.filter-chip-active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+}
+
+.filter-chip-active:hover {
+  background: #1d4ed8;
+  color: #ffffff;
+}
+
+.filter-summary {
+  margin-left: auto;
+  font-size: 12px;
+  color: #8b93a1;
+  white-space: nowrap;
+}
+
 .report-table-wrap {
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 12px 24px;
 }
 
 .report-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 14px;
 }
+
+.report-table th:nth-child(1) { width: 15%; }
+.report-table th:nth-child(2) { width: 19%; }
+.report-table th:nth-child(3) { width: 19%; }
+.report-table th:nth-child(4) { width: 32%; }
+.report-table th:nth-child(5) { width: 15%; }
 
 .report-table th {
   text-align: left;
@@ -1227,7 +1329,8 @@ onMounted(async () => {
 }
 
 .comment-cell {
-  min-width: 200px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .empty-cell {
@@ -1686,6 +1789,7 @@ onMounted(async () => {
   /* кнопки и колонка действий на печати не нужны */
   .report-modal-header .close-btn,
   .report-footer,
+  .report-filters,
   .col-actions,
   .actions-cell,
   .empty-cell {

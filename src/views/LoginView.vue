@@ -68,6 +68,10 @@ onMounted(async () => {
 <template>
   <div class="screen auth">
     <div class="card">
+      <div class="brand">
+        <span class="brand-name">NNTime</span>
+        <span class="brand-sub">учёт сверхнормативного времени</span>
+      </div>
       <h1 class="title">
         {{ mode === 'login' ? 'Войти' : 'Создать аккаунт' }}
       </h1>
@@ -131,6 +135,27 @@ onMounted(async () => {
   background: #ffffff;
   border-radius: 12px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 18px;
+}
+
+.brand-name {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #2563eb;
+}
+
+.brand-sub {
+  font-size: 12px;
+  color: #8b93a1;
+  letter-spacing: 0.2px;
 }
 
 .title {

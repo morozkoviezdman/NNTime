@@ -1,97 +1,227 @@
-# NNTime — «Рабочее время» (PWA + Supabase)
+# NNTime
 
-Панель учёта сверхнормативного времени на работе. Открываешь сайт, входишь через почту+пароль, нажимаешь кнопку — время фиксируется в Supabase. Отчёт считается на клиенте за выбранный период.
+**Учёт сверхнормативного времени** — PWA-приложение, которое отвечает на один вопрос: сколько часов сверх нормы вы отработали и когда именно.
+
+Открываете сайт, нажимаете одну кнопку — время фиксации и переработка уходят в базу. Дальше отчёт за любой период: на экране, с фильтрами и на печати.
+
+<p>
+  <img alt="Версия" src="https://img.shields.io/badge/version-1.1.0-2563eb">
+  <img alt="PWA" src="https://img.shields.io/badge/PWA-ready-16a34a">
+  <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42b883">
+  <img alt="Supabase" src="https://img.shields.io/badge/Supabase-Postgres-3ecf8e">
+</p>
+
+**Демо:** https://morozkoviezdman.github.io/NNTime/
+
+---
+
+## Зачем это
+
+Сверхурочные обычно считают «на глазок» или в заметках телефона. NNTime делает это точно:
+
+- знает время окончания смены (например, 18:00) и считает переработку в минутах;
+- хранит историю по датам в базе, а не в памяти браузера;
+- показывает суммарную переработку за выбранный период;
+- умеет выгрузить отчёт на печать — с шапкой таблицы на каждой странице.
+
+---
+
+## Возможности
+
+### Фиксация времени
+- Кнопка **«Зафиксировать»** записывает текущее время и вычисляет переработку относительно настроенного порога.
+- **Одна запись на дату.** Повторное нажатие в тот же день не создаёт дубль, а перезаписывает запись (время, сверхнорма, комментарий).
+- Если текущее время меньше порога, приложение предупреждает: «Переработка не возможна» — можно отменить или всё равно записать.
+- После записи кнопка на 3 секунды становится зелёной «Обновлено» и возвращается в исходное состояние.
+
+### Период и норма
+- Настройка **периода отчёта** (дата с — дата по) и **времени окончания смены** (часы : минуты).
+- Настройки хранятся в Supabase и подгружаются при каждом входе — с любого устройства.
+- Кнопка «Сохранить» подтверждает: «Обновлено» + зелёный цвет на 3 секунды.
+
+### Сводка
+- Блок **«Сверхнормативно отработано за период всего (чч:мм)»** — сумма за выбранные даты.
+- Пересчитывается автоматически после каждой фиксации и после смены периода.
+
+### Отчёт
+- Отчёт строится **строго по выбранному периоду** и только по вашим записям.
+- Колонки: дата, время выхода, сверхнорма, комментарий.
+- **Фильтры по величине переработки:** все записи, `> 1 ч`, `> 2 ч`, `> 3 ч`. Рядом счётчик «сколько из скольких».
+- **Комментарий** редактируется прямо в таблице (иконка карандаша).
+- **Удаление** записи — крестик в строке; удаляется и из базы.
+- **Печать** — вся таблица целиком, с разбивкой на страницы и повтором заголовков, без кнопок и служебной колонки.
+
+### Прочее
+- Вход через **Google** или почту с паролем; регистрация с подтверждением адреса.
+- **PWA**: устанавливается на домашний экран iPhone и Android, работает как отдельное приложение.
+- История изменений по версиям — внизу главного экрана.
+- Тёмно-синий акцент, белые карточки, mobile-first вёрстка.
+
+---
+
+## Технологии
+
+| Слой | Что используется |
+|---|---|
+| Фронтенд | Vue 3 (`<script setup>`), TypeScript, Vite |
+| Состояние | Pinia |
+| Роутинг | Vue Router |
+| Бэкенд | Supabase (Postgres, Auth, RLS) |
+| Хостинг | GitHub Pages + GitHub Actions |
+| Стили | CSS (scoped), без UI-фреймворков |
+
+---
+
+## Быстрый старт
+
+```bash
+git clone https://github.com/morozkoviezdman/NNTime.git
+cd NNTime
+npm install
+
+cp .env.example .env
+# впишите свои значения (см. ниже)
+
+npm run dev      # http://localhost:5173
+```
+
+### Переменные окружения
+
+`.env`:
+
+```env
+VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+VITE_SUPABASE_ANON_KEY=<anon / publishable key>
+```
+
+Ключ `anon` безопасен для браузера: доступ к данным ограничен правилами RLS.
+
+---
+
+## База данных
+
+Приложению нужны две таблицы: общие настройки и записи по датам.
+
+- `settings` — **одна строка** на приложение: порог переработки и период отчёта.
+- `work_logs` — записи пользователей: дата, время фиксации, минуты переработки, комментарий.
+
+Полная схема с индексами и политиками RLS — в [`supabase-setup.sql`](supabase-setup.sql).
+Миграция для уже существующей базы (добавляет недостающие колонки, чинит права, убирает дубли) — в [`fix-schema.sql`](fix-schema.sql).
+
+Ключевые правила:
+
+```sql
+-- одна запись на дату у пользователя
+CREATE UNIQUE INDEX work_logs_user_date_uniq ON work_logs(user_id, date);
+
+-- пользователь видит и меняет только свои записи
+CREATE POLICY work_logs_select ON work_logs FOR SELECT
+  TO authenticated USING (auth.uid() = user_id);
+```
+
+### Миграции
+
+Выполняйте в **Supabase → SQL Editor**. Скрипты идемпотентны — повторный запуск безопасен.
+
+```sql
+ALTER TABLE settings    ADD COLUMN IF NOT EXISTS end_of_shift_minute smallint NOT NULL DEFAULT 0;
+ALTER TABLE work_logs   ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+```
+
+---
+
+## Как пользоваться
+
+1. **Войти** через Google или по почте с паролем.
+2. В блоке **«Период»** выбрать даты отчёта, ниже задать **время окончания смены** (например, `18 : 00`) и нажать **«Сохранить»**.
+3. В конце рабочего дня нажать круглую кнопку **«Зафиксировать»**. Если время позже порога — переработка посчитается и уйдёт в базу.
+4. Нажать **«Вывести отчёт за выбранный период»** — откроется таблица.
+5. При необходимости отфильтровать по переработке (`> 1 ч`, `> 2 ч`, `> 3 ч`), поправить комментарий, удалить лишнюю строку.
+6. Нажать **«Печать»** — документ сформируется сразу для всех строк.
+
+### Установка на телефон
+
+- **iPhone (Safari):** «Поделиться» → «Добавить на домашний экран» → «Добавить».
+- **Android (Chrome):** меню ⋮ → «Добавить на экран» (или «Установить приложение») → «Добавить».
+
+---
+
+## Сборка и деплой
+
+```bash
+npm run build     # сборка в dist/
+npm run preview   # локальный просмотр сборки
+```
+
+Деплой автоматический: push в `main` → GitHub Actions собирает проект и публикует `dist/` на GitHub Pages (`.github/workflows/deploy.yml`).
+
+### Настройки, без которых не работает вход
+
+**Supabase → Authentication → URL Configuration**
+
+- **Site URL:** `https://morozkoviezdman.github.io/NNTime/`
+- **Redirect URLs:**
+  - `https://morozkoviezdman.github.io/NNTime/`
+  - `https://morozkoviezdman.github.io/NNTime`
+
+**Google Cloud Console → OAuth Client → Authorized redirect URIs**
+
+- `https://<project-ref>.supabase.co/auth/v1/callback`
+
+> Приложение само подставляет базовый путь `/NNTime/` в адрес возврата после входа, поэтому корень домена в настройках указывать не нужно.
+
+### Письма подтверждения
+
+Шаблоны писем меняются в **Supabase → Authentication → Emails** (шаблоны *Confirm signup*, *Magic Link*, *Reset Password*). Имя отправителя — в **Project Settings → Authentication → SMTP Settings**.
+
+---
 
 ## Структура проекта
 
-- `src/supabaseClient.ts` — клиент Supabase (anon-ключ, persistSession, autoRefreshToken).
-- `src/stores/auth.ts` — Pinia-сторед: сессия, регистрация, вход.
-- `src/router/index.ts` — маршруты: `/`, `/app`, `/report` с guards.
-- `src/views/LoginView.vue` — вход/регистрация.
-- `src/views/MainView.vue` — главная: кнопка фиксации, норма, краткая сводка.
-- `src/views/ReportView.vue` — отчёт по `settings` + `work_logs`;
-- `src/utils/db.ts` — `getWorkLogs`, `recordWorkSession`, `calculateOvertimeMinutes`.
-- `src/utils/types.ts` — типы `Database` для `settings` и `work_logs`.
-- `src/styles/global.css` — дизайн.
-- `vite.config.ts` — `base` по переменной `GITHUB_PAGES_BASE` (GitHub Pages).
-- `.github/workflows/deploy.yml` — автоматический деплой на GitHub Pages.
-
-## База данных (Supabase)
-
-Также смотреть в `supabase-setup.sql` (скорее всего, его нет в этом репозитории).
-
-### Таблицы
-
-```sql
--- settings: настройки проекта
-CREATE TABLE settings (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  end_of_shift_hour smallint NOT NULL DEFAULT 18,   -- окончание смены (по норме)
-  period_start date NOT NULL,                        -- начало периода отчёта
-  period_end date NOT NULL,                          -- конец периода отчёта
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
--- work_logs: запись о смене
-CREATE TABLE work_logs (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  date date NOT NULL,
-  press_time timestamptz NOT NULL,
-  overtime_minutes integer NOT NULL DEFAULT 0,       -- минуты сверх нормы
-  note text NULL,                                    -- примечание
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
--- Индекс по user_id + date
-CREATE INDEX idx_work_logs_user ON work_logs(user_id, date);
-
--- RLS: видит и пишет только свой user_id
-ALTER TABLE work_logs ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY work_logs_select ON work_logs FOR SELECT
-  TO authenticated USING (auth.uid() = user_id);
-
-CREATE POLICY work_logs_insert ON work_logs FOR INSERT
-  TO authenticated USING (auth.uid() = user_id);
-
-CREATE POLICY work_logs_update ON work_logs FOR UPDATE
-  TO authenticated USING (auth.uid() = user_id);
-
-CREATE POLICY work_logs_delete ON work_logs FOR DELETE
-  TO authenticated USING (auth.uid() = user_id);
+```
+src/
+├── main.ts                точка входа
+├── App.vue                корневой компонент
+├── supabaseClient.ts      клиент Supabase
+├── router/index.ts        маршруты и guard авторизации
+├── stores/auth.ts         сессия, вход, регистрация, OAuth
+├── views/
+│   ├── LoginView.vue      вход и регистрация
+│   └── MainView.vue       главный экран, отчёт, печать, история версий
+├── utils/
+│   ├── db.ts              все запросы к Supabase
+│   └── types.ts           типы таблиц
+└── styles/global.css      базовые стили
 ```
 
-## Локальный запуск
+---
 
-```bash
-cp .env.example .env   # вставь сюда свой URL и anon-ключ
-npm install
-npm run dev
-```
+## Частые проблемы
 
-## Сборка & деплой
+| Симптом | Причина и решение |
+|---|---|
+| После входа через Google ошибка 404 на корне домена | В адрес возврата попал корень без `/NNTime/`. Обновите страницу с `Ctrl+F5` — код подставляет базовый путь сам; проверьте Redirect URLs в Supabase |
+| Ссылка из письма ведёт на 404 | Письмо отправлено до обновления или в Site URL нет `/NNTime/`. Исправьте Site URL и запросите письмо повторно |
+| Настройки не сохраняются, при входе снова дефолт | Нет колонки `end_of_shift_minute` или закрыт доступ RLS. Выполните `fix-schema.sql` |
+| Переработка считается странно | Неверный порог смены в настройках — задайте время и нажмите «Сохранить» |
+| За одну дату две записи | До миграции. Выполните блок дедупликации из `fix-schema.sql` |
 
-```bash
-npm run build      # -> dist/
-npm run preview    # локальный прогон собранного
-```
+---
 
-### GitHub Pages
+## Версии
 
-1. Создай репозиторий `NNTime` (или любое другое).
-2. В `vite.config.ts` оставь `base: '/NNTime/'` (или `process.env.GITHUB_PAGES_BASE` для гибкости).
-3. Залить `git push`.
-4. В настройках репозитория **Settings → Pages** выбрать ветку `main` и папку `/root/workspace/supabase-pwa/dist` (GitHub Actions сделает это автоматически, если workflow включён).
-5. Потом сайт будет по адресу `https://<ваш-логин>.github.io/NNTime/`.
+**v1.1.0**
+- корректный возврат кнопки «Зафиксировать» во всех сценариях;
+- перезапись записи за ту же дату вместо создания дубля;
+- сохранение и загрузка периода и времени из базы;
+- фильтры отчёта по величине переработки;
+- печать отчёта целиком с разбивкой на страницы;
+- обновлённое оформление блоков, подсказки по установке, история версий.
 
-> На macOS нельзя собиратьIPA для iOS; PWA в Safari — «Add to Home Screen» — правильное решение без оборудования.
+**v1.0.0** — первый релиз: фиксация времени, отчёт за период, вход через Google.
 
-## Безопасность
+---
 
-- В браузер идёт только `VITE_SUPABASE_ANON_KEY` (публичный).
-- `service_role` / `sb_secret_xxx` — только серверное окружение, не класть в репозиторий.
-- RLS: `work_logs` доступно только для текущего пользователя (`auth.uid() = user_id`).
-- Пароли в Supabase хранятся как хэш; никогда не выкладывайте секреты.
+## Лицензия
 
-
+Личный проект. Использование и доработка — по договорённости с автором.
