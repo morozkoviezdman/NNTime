@@ -170,6 +170,13 @@ npm run preview   # локальный просмотр сборки
 
 > Приложение само подставляет базовый путь `/NNTime/` в адрес возврата после входа, поэтому корень домена в настройках указывать не нужно.
 
+
+### Редирект с корня домена
+
+GitHub Pages для project-сайта живёт по пути `/NNTime/`, а корень `https://morozkoviezdman.github.io/` — отдельный сайт. Чтобы ссылки, приходящие на корень (письма, старые закладки), не давали 404, создан репозиторий-заглушка [`morozkoviezdman.github.io`](https://github.com/morozkoviezdman/morozkoviezdman.github.io): его `index.html` и `404.html` мгновенно перенаправляют на `/NNTime/`, сохраняя `?code=` и `#access_token=`.
+
+Обновлять этот репозиторий нужно только при смене базового пути приложения.
+
 ### Письма подтверждения
 
 Шаблоны писем меняются в **Supabase → Authentication → Emails** (шаблоны *Confirm signup*, *Magic Link*, *Reset Password*). Имя отправителя — в **Project Settings → Authentication → SMTP Settings**.
