@@ -223,10 +223,11 @@ const emitRecord = async () => {
       await updateWorkLog(existingLog.id, todayStr, now, overtimeMins, existingLog.note ?? '')
       showToast('Сверхнорма перезаписана')
     } else {
-      const addedMinutes = await recordWorkSession(overtimeHours.value, overtimeMinutes.value)
-      const msg = addedMinutes >= 60
-        ? `Добавлено ${Math.floor(addedMinutes / 60)} ч ${addedMinutes % 60} м`
-        : `Добавлено ${addedMinutes} м`
+      const res = await recordWorkSession(overtimeHours.value, overtimeMinutes.value)
+      const mins = res.overtimeMinutes
+      const msg = mins >= 60
+        ? `Записано за ${formatDateDisplay(res.date)}: ${Math.floor(mins / 60)} ч ${mins % 60} м`
+        : `Записано за ${formatDateDisplay(res.date)}: ${mins} м`
       showToast(msg)
     }
 
@@ -249,18 +250,26 @@ const openReport = async () => {
   const start = periodStart.value
   const end = periodEnd.value
   try {
+    const { data: { session } } = await supabase.auth.getSession()
+    const uid = session?.user?.id ?? authStore.user?.id
     const { data, error } = await supabase
       .from('work_logs')
       .select('*')
-      .eq('user_id', authStore.user?.id)
+      .eq('user_id', uid)
       .gte('date', start)
       .lte('date', end)
       .order('date', { ascending: false })
     if (error) throw error
-    workLogs.value = data as any[]
-    showToast('Отчёт за выбранный период')
+    workLogs.value = (data as any[]) ?? []
+    showToast(
+      workLogs.value.length
+        ? `Найдено записей: ${workLogs.value.length} за ${formatDateDisplay(start)} — ${formatDateDisplay(end)}`
+        : `За период ${formatDateDisplay(start)} — ${formatDateDisplay(end)} записей нет`
+    )
   } catch (e: any) {
     error.value = e.message || 'Не удалось загрузить отчёт'
+    showToast(e.message || 'Не удалось загрузить отчёт')
+    workLogs.value = []
   }
   reportOpen.value = true
 }
@@ -459,6 +468,11 @@ onMounted(async () => {
               </tr>
             </thead>
             <tbody>
+              <tr v-if="workLogs.length === 0">
+                <td colspan="5" class="empty-cell">
+                  За выбранный период записей нет
+                </td>
+              </tr>
               <tr v-for="(log, index) in workLogs" :key="index">
                 <td>{{ formatDateDisplay(log.date) }}</td>
                 <td>{{ formatTime(log.press_time) }}</td>
@@ -909,6 +923,13 @@ onMounted(async () => {
 
 .comment-cell {
   min-width: 200px;
+}
+
+.empty-cell {
+  text-align: center;
+  padding: 20px 12px;
+  color: #6b7280;
+  font-size: 14px;
 }
 
 .note-text {

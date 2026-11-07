@@ -60,17 +60,35 @@ export async function recordWorkSession(endOfDayHour: number = 18, endOfDayMinut
 
   const now = new Date()
   const overtimeMinutes = calculateOvertimeMinutes(now, endOfDayHour, endOfDayMinute)
+  // Дата — локальная (не UTC), иначе около полуночи запись уезжает на вчера.
+  const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
-  const { error } = await supabase.from('work_logs').insert({
+  const payload: Record<string, any> = {
     user_id: user.id,
-    date: now.toISOString().slice(0, 10),
-    press_time: now,
+    date: localDate,
+    press_time: now.toISOString(),
     overtime_minutes: overtimeMinutes,
     note: null,
-  })
+  }
 
-  if (error) throw error
-  return overtimeMinutes
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const { data, error } = await supabase.from('work_logs').insert(payload).select()
+
+    if (!error) {
+      if (!data || data.length === 0) {
+        throw new Error('Запись не сохранилась: база не вернула созданную строку. Проверьте права таблицы work_logs.')
+      }
+      return { overtimeMinutes, date: localDate, row: data[0] }
+    }
+
+    const col = missingColumn(error)
+    if (col && col in payload) {
+      delete payload[col]
+      continue
+    }
+    throw error
+  }
+  throw new Error('Не удалось сохранить запись')
 }
 
 /** Вычислить сверхнормативное время (в минутах). */
