@@ -1742,7 +1742,7 @@ onMounted(async () => {
 
   .report-table-wrap {
     padding: 8px 14px 4px;
-    overflow-x: visible;
+    overflow-x: hidden;
   }
 
   .report-table {
