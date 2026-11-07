@@ -67,10 +67,15 @@ export const useAuthStore = defineStore('auth', () => {
   async function signInWithOAuth(provider: string) {
     loading.value = true
     try {
+      // ВАЖНО: возвращаемся строго на адрес приложения вместе с базовым путём
+      // (/NNTime/). window.location.origin даёт корень домена — GitHub Pages
+      // отдаёт там 404, из-за чего вход через Google «ломался».
+      const base = import.meta.env.BASE_URL || '/'
+      const redirectTo = `${window.location.origin}${base}`
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: provider as any,
         options: {
-          redirectTo: window.location.origin,
+          redirectTo,
         },
       })
       if (error) throw error
