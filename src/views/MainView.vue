@@ -356,32 +356,31 @@ onMounted(async () => {
       <div class="overtime-value">{{ totalHours }}:{{ String(totalMinLeft).padStart(2, '0') }}</div>
     </section>
 
-    <!-- Period block (full width) -->
-    <section class="period-block">
-      <div class="period-inputs">
-        <span class="period-label">Период</span>
+    <!-- Period & time settings (one white card) -->
+    <section class="settings-block">
+      <div class="field-row">
+        <span class="field-label">Период</span>
         <div class="period-inputs-group">
-          <input type="date" v-model="periodStart" />
+          <input type="date" v-model="periodStart" title="Начало периода отчёта" />
           <span class="period-sep">—</span>
-          <input type="date" v-model="periodEnd" />
+          <input type="date" v-model="periodEnd" title="Конец периода отчёта" />
         </div>
       </div>
-    </section>
 
-    <!-- Time & save block (single row) -->
-    <section class="time-save-block">
-      <div class="time-inputs">
-        <label class="time-label">Время после которого начинается переработка</label>
-        <div class="time-field">
-          <input type="number" v-model.number="overtimeHours" min="0" max="23" placeholder="Часы" />
-          <span class="time-colon">:</span>
-          <input type="number" v-model.number="overtimeMinutes" min="0" max="59" placeholder="Минуты" />
+      <div class="field-divider"></div>
+
+      <div class="field-row">
+        <span class="field-label">Время, после которого начинается переработка</span>
+        <div class="time-inline">
+          <div class="time-field">
+            <input type="number" v-model.number="overtimeHours" min="0" max="23" placeholder="18" title="Часы окончания смены" />
+            <span class="time-colon">:</span>
+            <input type="number" v-model.number="overtimeMinutes" min="0" max="59" placeholder="00" title="Минуты окончания смены" />
+          </div>
+          <button class="save-btn" @click="saveSettings" :disabled="saveLoading || saveBusy" :class="[classNameSave, { 'save-btn-green': saveButtonGreen }]" title="Сохранить период и время в базе">
+            {{ saveLoading ? 'Сохраняю...' : saveButtonText }}
+          </button>
         </div>
-      </div>
-      <div class="save-row">
-        <button class="save-btn" @click="saveSettings" :disabled="saveLoading || saveBusy" :class="[classNameSave, { 'save-btn-green': saveButtonGreen }]">
-          {{ saveLoading ? 'Сохраняю...' : saveButtonText }}
-        </button>
       </div>
     </section>
 
@@ -623,72 +622,142 @@ onMounted(async () => {
   color: #6b7280;
 }
 
-.period-time-row {
+/* ── Settings card: период + время + сохранить ────────── */
+.settings-block {
+  background: #ffffff;
+  border: 1px solid #e5e8ef;
+  border-radius: 14px;
+  padding: 18px 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
   display: flex;
-  flex-direction: row;
-  gap: 16px;
+  flex-direction: column;
+  gap: 14px;
 }
 
-.period-control {
-  flex: 1;
-  min-width: 0;
+.field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.time-control {
-  flex: 0 0 35%;
-  min-width: 0;
+.field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #555b66;
+  line-height: 1.35;
 }
 
-.time-label {
-  display: block;
-  margin-bottom: 6px;
+.field-divider {
+  height: 1px;
+  background: #eef1f6;
+  margin: 0 -20px;
 }
 
-.time-inputs {
+/* период: два равных поля на всю ширину карточки */
+.period-inputs-group {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.time-inputs input {
-  flex: 1;
+.period-inputs-group input[type='date'] {
+  flex: 1 1 0;
   min-width: 0;
-  padding: 8px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  font-size: 14px;
+  height: 46px;
+  padding: 0 12px;
+  border: 1px solid #d7dbe3;
+  border-radius: 10px;
   background: #f8fafc;
-  transition: border-color 0.2s;
+  font-size: 15px;
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
 
-.time-inputs input:focus {
+.period-inputs-group input[type='date']:focus {
   outline: none;
+  background: #ffffff;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.period-sep {
+  color: #9ca3af;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+/* время + кнопка на одной строке */
+.time-inline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.time-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.time-field input {
+  width: 72px;
+  height: 46px;
+  padding: 0;
+  text-align: center;
+  border: 1px solid #d7dbe3;
+  border-radius: 10px;
+  background: #f8fafc;
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  -moz-appearance: textfield;
+}
+
+.time-field input::-webkit-outer-spin-button,
+.time-field input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.time-field input:focus {
+  outline: none;
+  background: #ffffff;
   border-color: #2563eb;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
 .time-colon {
-  color: #9ca3af;
+  font-size: 18px;
   font-weight: 700;
-  padding-bottom: 8px;
-}
-
-.save-action {
-  flex: 0 0 auto;
-  display: flex;
-  justify-content: flex-end;
+  color: #6b7280;
 }
 
 .save-btn {
-  padding: 8px 16px;
+  margin-left: auto;
+  flex: 0 0 auto;
+  height: 46px;
+  padding: 0 22px;
   background: #2563eb;
   color: #ffffff;
   border: none;
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: 10px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+}
+
+.save-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.save-btn:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .save-btn:disabled {
@@ -699,27 +768,7 @@ onMounted(async () => {
 .save-btn-green {
   background: #16a34a !important;
   color: #ffffff !important;
-  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
-}
-
-.save-btn-green:hover {
-  background: #15803d !important;
-}
-
-.save-btn:disabled {
-  opacity: 0.6;
-  cursor: wait;
-}
-
-.save-btn:disabled {
-  opacity: 0.6;
-  cursor: wait;
-}
-
-.save-btn-green {
-  background: #16a34a !important;
-  color: #ffffff !important;
-  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
+  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3) !important;
 }
 
 .save-btn-green:hover {
@@ -1134,6 +1183,47 @@ onMounted(async () => {
 
   .user-info {
     text-align: center;
+  }
+
+  .settings-block {
+    padding: 14px 16px;
+    gap: 12px;
+  }
+
+  .field-divider {
+    margin: 0 -16px;
+  }
+
+  .period-inputs-group {
+    gap: 8px;
+  }
+
+  .period-inputs-group input[type='date'] {
+    height: 44px;
+    padding: 0 10px;
+    font-size: 14px;
+  }
+
+  /* на узком экране кнопка «Сохранить» уходит под поля на всю ширину */
+  .time-inline {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .time-field {
+    flex: 1 1 auto;
+  }
+
+  .time-field input {
+    width: 100%;
+    min-width: 64px;
+    height: 44px;
+  }
+
+  .save-btn {
+    margin-left: 0;
+    width: 100%;
+    height: 44px;
   }
 
   .period-time-block {
