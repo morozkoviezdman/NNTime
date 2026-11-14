@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS settings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   end_of_shift_hour smallint NOT NULL DEFAULT 18,   -- час окончания смены (по норме)
   end_of_shift_minute smallint NOT NULL DEFAULT 0,  -- минуты окончания смены
+  ask_note_on_record boolean NOT NULL DEFAULT false, -- спрашивать комментарий при фиксации
   period_start date NOT NULL,                       -- начало периода отчёта
   period_end date NOT NULL,                         -- конец периода отчёта
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -16,6 +17,7 @@ CREATE TABLE IF NOT EXISTS settings (
 
 -- миграции для баз, созданных ранее
 ALTER TABLE settings ADD COLUMN IF NOT EXISTS end_of_shift_minute smallint NOT NULL DEFAULT 0;
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS ask_note_on_record boolean NOT NULL DEFAULT false;
 ALTER TABLE settings ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
 
 -- 2. Записи о переработке (по одной на дату у пользователя)

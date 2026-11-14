@@ -11,6 +11,10 @@
 ALTER TABLE settings
   ADD COLUMN IF NOT EXISTS end_of_shift_minute smallint NOT NULL DEFAULT 0;
 
+-- галочка «спрашивать комментарий при фиксации»
+ALTER TABLE settings
+  ADD COLUMN IF NOT EXISTS ask_note_on_record boolean NOT NULL DEFAULT false;
+
 ALTER TABLE work_logs
   ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
 

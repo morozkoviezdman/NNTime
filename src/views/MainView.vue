@@ -42,7 +42,7 @@ const filteredLogs = computed(() => {
   return workLogs.value.filter((log: any) => (log.overtime_minutes ?? 0) > minMinutes)
 })
 const changesOpen = ref(false)
-const version = 'v1.2.0'
+const version = 'v1.3.0'
 const brandIcon = `${import.meta.env.BASE_URL}icon.svg`
 const buildDate = new Date().toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric' })
 
@@ -56,6 +56,10 @@ const toast = ref('')
 const toastVisible = ref(false)
 const toastTimer = ref<number | null>(null)
 
+const askNote = ref(false)
+const noteDialogOpen = ref(false)
+const noteDraft = ref('')
+const pendingRecord = ref<any>(null)
 const recordLoading = ref(false)
 const recordButtonText = ref('Зафиксировать')
 const recordButtonGreen = ref(false)
@@ -125,6 +129,7 @@ const loadSettings = async () => {
     periodEnd.value = data?.period_end && data.period_end.trim() ? data.period_end : endVal
     overtimeHours.value = data?.end_of_shift_hour ?? 18
     overtimeMinutes.value = data?.end_of_shift_minute ?? 0
+    askNote.value = !!(data as any)?.ask_note_on_record
   } catch (e: any) {
     error.value = e.message || 'Не удалось загрузить настройки'
   }
@@ -165,6 +170,7 @@ const saveSettings = async () => {
     saveLoading.value = true
     await updateSettings({
       id: settings.value?.id || `${authStore.user?.id}-settings`,
+      ask_note_on_record: askNote.value,
       end_of_shift_hour: Number(overtimeHours.value) || 0,
       end_of_shift_minute: Number(overtimeMinutes.value) || 0,
       period_start: periodStart.value,
@@ -199,6 +205,25 @@ const resetRecordButton = () => {
   }, 3000)
 }
 
+// Записать/перезаписать запись за дату с комментарием
+const writeRecord = async (date: string, pressTime: Date, overtimeMins: number, existingId: string | null, note: string) => {
+  if (existingId) {
+    await updateWorkLog(existingId, date, pressTime, overtimeMins, note)
+    console.info('[record] перезаписана запись:', existingId, 'минут:', overtimeMins, 'комментарий:', note)
+    showToast('Сверхнорма перезаписана')
+  } else {
+    const res = await recordWorkSession(overtimeHours.value, overtimeMinutes.value, note)
+    console.info('[record] вставлено в work_logs:', res.row)
+    const mins = res.overtimeMinutes
+    const msg = mins >= 60
+      ? `Записано за ${formatDateDisplay(res.date)}: ${Math.floor(mins / 60)} ч ${mins % 60} м`
+      : `Записано за ${formatDateDisplay(res.date)}: ${mins} м`
+    showToast(msg)
+  }
+  await loadPeriodOvertime()
+  await loadWorkLogs()
+}
+
 const emitRecord = async () => {
   error.value = ''
   try {
@@ -224,32 +249,63 @@ const emitRecord = async () => {
     // 2. Ищем запись за эту дату ПРЯМО В БАЗЕ (список в памяти может быть пустым/устаревшим)
     const todayStr = formatDateForInput(now)
     const existingLog = await getWorkLogByDate(todayStr)
+    const overtimeMins = Math.max(0, currentTotalMinutes - overtimeTotalMinutes)
 
-    if (existingLog) {
-      // Полная перезапись: дата, время, сверхнорма, комментарий
-      const overtimeMins = Math.max(0, currentTotalMinutes - overtimeTotalMinutes)
-      await updateWorkLog(existingLog.id, todayStr, now, overtimeMins, (existingLog as any).note ?? '')
-      console.info('[record] перезаписана запись:', existingLog.id, 'минут:', overtimeMins)
-      showToast('Сверхнорма перезаписана')
-    } else {
-      const res = await recordWorkSession(overtimeHours.value, overtimeMinutes.value)
-      console.info('[record] вставлено в work_logs:', res.row)
-      const mins = res.overtimeMinutes
-      const msg = mins >= 60
-        ? `Записано за ${formatDateDisplay(res.date)}: ${Math.floor(mins / 60)} ч ${mins % 60} м`
-        : `Записано за ${formatDateDisplay(res.date)}: ${mins} м`
-      showToast(msg)
+    // 3. Если включена галочка — сначала спрашиваем комментарий
+    if (askNote.value) {
+      pendingRecord.value = {
+        date: todayStr,
+        pressTime: now,
+        overtimeMins,
+        existingId: existingLog?.id ?? null,
+      }
+      noteDraft.value = (existingLog as any)?.note ?? ''
+      noteDialogOpen.value = true
+      recordLoading.value = false
+      return
     }
 
-    await loadPeriodOvertime()
-    await loadWorkLogs()
+    await writeRecord(todayStr, now, overtimeMins, existingLog?.id ?? null, (existingLog as any)?.note ?? '')
+  } catch (e: any) {
+    error.value = e.message || 'Ошибка записи'
+    showToast(e.message || 'Ошибка записи')
+  } finally {
+    if (!noteDialogOpen.value) {
+      recordLoading.value = false
+      resetRecordButton()
+    }
+  }
+}
+
+// Закрытие окна комментария: запись сохраняется в любом случае
+const closeNoteDialog = async (note: string) => {
+  const pending = pendingRecord.value
+  noteDialogOpen.value = false
+  pendingRecord.value = null
+  if (!pending) {
+    resetRecordButton()
+    return
+  }
+  try {
+    recordLoading.value = true
+    await writeRecord(pending.date, pending.pressTime, pending.overtimeMins, pending.existingId, note)
   } catch (e: any) {
     error.value = e.message || 'Ошибка записи'
     showToast(e.message || 'Ошибка записи')
   } finally {
     recordLoading.value = false
+    noteDraft.value = ''
     resetRecordButton()
   }
+}
+
+// Esc в окне комментария — сохранить без комментария
+if (typeof window !== 'undefined') {
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && noteDialogOpen.value) {
+      closeNoteDialog('')
+    }
+  })
 }
 
 const openReport = async () => {
@@ -397,6 +453,17 @@ onMounted(async () => {
           </button>
         </div>
       </div>
+
+      <div class="field-divider"></div>
+
+      <label class="ask-note-row" title="Спрашивать комментарий при каждой фиксации">
+        <input type="checkbox" v-model="askNote" />
+        <span class="ask-note-box"></span>
+        <span class="ask-note-text">
+          <span class="ask-note-title">Спрашивать комментарий при фиксации</span>
+          <span class="ask-note-hint">После нажатия «Зафиксировать» откроется окно для заметки</span>
+        </span>
+      </label>
     </section>
 
     <!-- Fix button (circular) -->
@@ -470,6 +537,7 @@ onMounted(async () => {
               <span class="change-date">{{ buildDate }}</span>
             </div>
             <ul class="change-list">
+              <li>Новая галочка «Спрашивать комментарий при фиксации» — заметка пишется сразу при записи</li>
               <li>Кнопка «Зафиксировать» корректно возвращается в исходное состояние</li>
               <li>Повторная фиксация за ту же дату перезаписывает запись, а не создаёт дубль</li>
               <li>Период и время сохраняются в базе и подгружаются при новом входе</li>
@@ -480,6 +548,36 @@ onMounted(async () => {
         </div>
         <div class="changes-footer">
           <button class="changes-close-btn" @click="changesOpen = false" title="Закрыть">Закрыть</button>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- Окно комментария при фиксации -->
+    <div v-if="noteDialogOpen" class="note-modal" @click.self="closeNoteDialog('')">
+      <div class="note-modal-content">
+        <div class="note-modal-header">
+          <div>
+            <h3 class="note-modal-title">Комментарий к записи</h3>
+            <div class="note-modal-sub">
+              {{ formatDateDisplay(pendingRecord?.date) }}<template v-if="pendingRecord"> · сверхнорма {{ formatDuration(pendingRecord.overtimeMins) }}</template>
+            </div>
+          </div>
+          <button class="close-btn" @click="closeNoteDialog('')" title="Закрыть и сохранить без комментария">✕</button>
+        </div>
+        <div class="note-modal-body">
+          <textarea
+            v-model="noteDraft"
+            class="note-textarea"
+            maxlength="400"
+            placeholder="Например: задержался на приёмке товара"
+            title="Комментарий сохранится вместе с записью"
+          ></textarea>
+          <div class="note-counter">{{ noteDraft.length }} / 400</div>
+        </div>
+        <div class="note-modal-footer">
+          <button class="note-btn note-btn-ghost" @click="closeNoteDialog('')" title="Сохранить запись без комментария">Без комментария</button>
+          <button class="note-btn note-btn-primary" @click="closeNoteDialog(noteDraft.trim())" title="Сохранить запись с комментарием">Сохранить</button>
         </div>
       </div>
     </div>
@@ -851,6 +949,194 @@ onMounted(async () => {
 
 .save-btn-green:hover {
   background: #15803d !important;
+}
+
+
+/* ── Галочка «спрашивать комментарий» ─────────────────── */
+.ask-note-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  padding: 2px 0;
+}
+
+.ask-note-row input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.ask-note-box {
+  position: relative;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  border-radius: 6px;
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  transition: background .15s, border-color .15s;
+}
+
+.ask-note-box::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 3px;
+  width: 6px;
+  height: 11px;
+  border: solid #ffffff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) scale(0);
+  transition: transform .15s;
+}
+
+.ask-note-row input:checked ~ .ask-note-box {
+  background: #2563eb;
+  border-color: #2563eb;
+}
+
+.ask-note-row input:checked ~ .ask-note-box::after {
+  transform: rotate(45deg) scale(1);
+}
+
+.ask-note-row input:focus-visible ~ .ask-note-box {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+}
+
+.ask-note-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ask-note-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1d21;
+  line-height: 1.35;
+}
+
+.ask-note-hint {
+  font-size: 12px;
+  color: #8b93a1;
+  line-height: 1.4;
+}
+
+/* ── Окно комментария ────────────────────────────────── */
+.note-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1200;
+}
+
+.note-modal-content {
+  width: 100%;
+  max-width: 440px;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+.note-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 10px;
+}
+
+.note-modal-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1a1d21;
+  margin: 0;
+}
+
+.note-modal-sub {
+  font-size: 12px;
+  color: #8b93a1;
+  margin-top: 3px;
+}
+
+.note-modal-body {
+  padding: 0 18px 4px;
+}
+
+.note-textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  padding: 12px 14px;
+  border: 1px solid #d7dbe3;
+  border-radius: 10px;
+  background: #f8fafc;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #111827;
+  font-family: inherit;
+  outline: none;
+  transition: border-color .2s, box-shadow .2s, background .2s;
+}
+
+.note-textarea:focus {
+  background: #ffffff;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.note-counter {
+  font-size: 11px;
+  color: #a6adb9;
+  text-align: right;
+  margin-top: 6px;
+}
+
+.note-modal-footer {
+  display: flex;
+  gap: 10px;
+  padding: 14px 18px 18px;
+}
+
+.note-btn {
+  flex: 1;
+  height: 44px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: background .2s;
+}
+
+.note-btn-primary {
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+}
+
+.note-btn-primary:hover {
+  background: #1d4ed8;
+}
+
+.note-btn-ghost {
+  background: #f3f5f9;
+  color: #4b5563;
+}
+
+.note-btn-ghost:hover {
+  background: #e8ecf4;
 }
 
 /* ── Fix button (2x larger) ───────────────────────────── */

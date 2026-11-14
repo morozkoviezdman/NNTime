@@ -68,7 +68,7 @@ export async function getWorkLogByDate(date: string) {
 }
 
 /** Записать конец смены (создать новую запись). */
-export async function recordWorkSession(endOfDayHour: number = 18, endOfDayMinute: number = 0) {
+export async function recordWorkSession(endOfDayHour: number = 18, endOfDayMinute: number = 0, note: string = '') {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Не авторизован. Сначала войдите через экран логина.')
 
@@ -85,7 +85,7 @@ export async function recordWorkSession(endOfDayHour: number = 18, endOfDayMinut
     date: localDate,
     press_time: now.toISOString(),
     overtime_minutes: overtimeMinutes,
-    note: null,
+    note: note ? note : null,
   }
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -190,6 +190,7 @@ export async function updateSettings(updates: Partial<SettingsRow>) {
 
   const userId = session.user.id
   const payload: Record<string, any> = {
+    ask_note_on_record: updates.ask_note_on_record ?? false,
     end_of_shift_hour: updates.end_of_shift_hour ?? 18,
     end_of_shift_minute: updates.end_of_shift_minute ?? 0,
     period_start: updates.period_start ?? '0001-01-01',

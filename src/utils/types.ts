@@ -6,6 +6,7 @@ export type Database = {
     Tables: {
       settings: {
         Row: {
+          ask_note_on_record: boolean
           end_of_shift_hour: number
           end_of_shift_minute: number
           id: string
@@ -14,6 +15,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          ask_note_on_record?: boolean
           end_of_shift_hour: number
           id?: string
           period_end: string
@@ -21,6 +23,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          ask_note_on_record?: boolean
           end_of_shift_hour?: number
           id?: string
           period_end?: string
