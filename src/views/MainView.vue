@@ -42,6 +42,48 @@ const filteredLogs = computed(() => {
   return workLogs.value.filter((log: any) => (log.overtime_minutes ?? 0) > minMinutes)
 })
 const changesOpen = ref(false)
+const changelog = [
+  {
+    version: 'v1.3.0',
+    date: '8 ноября 2026',
+    items: [
+      'Галочка «Спрашивать комментарий при фиксации» — заметка пишется сразу при записи',
+      'Окно комментария при фиксации, до 400 символов',
+      'Настройка хранится в базе и работает на всех устройствах',
+      'Отчёт на телефоне — карточки вместо таблицы, названия полей больше не наезжают',
+    ],
+  },
+  {
+    version: 'v1.2.0',
+    date: '8 ноября 2026',
+    items: [
+      'Значок NNTime: часы со стрелкой «сверх нормы» и надписью',
+      'PWA-манифест и иконки для установки на телефон',
+      'Логотип в шапке приложения и на экране входа',
+      'Настоящая иконка Google на кнопке входа',
+    ],
+  },
+  {
+    version: 'v1.1.0',
+    date: '7 ноября 2026',
+    items: [
+      'Кнопка «Зафиксировать» корректно возвращается в исходное состояние',
+      'Повторная фиксация за ту же дату перезаписывает запись, а не создаёт дубль',
+      'Период и время сохраняются в базе и подгружаются при новом входе',
+      'Отчёт печатается целиком, с разбивкой на страницы',
+      'Фильтры отчёта по сверхнорме: больше 1, 2 и 3 часов',
+      'Оформление блока периода и времени, подсказки по установке',
+    ],
+  },
+  {
+    version: 'v1.0.0',
+    date: '1 ноября 2026',
+    items: [
+      'Первый релиз: фиксация времени, отчёт за период, вход через Google',
+    ],
+  },
+]
+
 const version = 'v1.3.0'
 const brandIcon = `${import.meta.env.BASE_URL}icon.svg`
 const buildDate = new Date().toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -531,18 +573,14 @@ onMounted(async () => {
           <button class="close-btn" @click="changesOpen = false" title="Закрыть">✕</button>
         </div>
         <div class="changes-list">
-          <div class="change-item">
+          <div v-for="entry in changelog" :key="entry.version" class="change-item">
             <div class="change-head">
-              <span class="change-version">{{ version }}</span>
-              <span class="change-date">{{ buildDate }}</span>
+              <span class="change-version">{{ entry.version }}</span>
+              <span class="change-date">{{ entry.date }}</span>
+              <span v-if="entry.version === version" class="change-current">текущая</span>
             </div>
             <ul class="change-list">
-              <li>Новая галочка «Спрашивать комментарий при фиксации» — заметка пишется сразу при записи</li>
-              <li>Кнопка «Зафиксировать» корректно возвращается в исходное состояние</li>
-              <li>Повторная фиксация за ту же дату перезаписывает запись, а не создаёт дубль</li>
-              <li>Период и время сохраняются в базе и подгружаются при новом входе</li>
-              <li>Отчёт печатается целиком, с разбивкой на страницы</li>
-              <li>Оформление блока периода и времени, подсказки и истории версий</li>
+              <li v-for="(item, i) in entry.items" :key="i">{{ item }}</li>
             </ul>
           </div>
         </div>
@@ -570,7 +608,7 @@ onMounted(async () => {
             v-model="noteDraft"
             class="note-textarea"
             maxlength="400"
-            placeholder="Например: задержался на приёмке товара"
+            placeholder="Например: подготовка к совещанию по разработке"
             title="Комментарий сохранится вместе с записью"
           ></textarea>
           <div class="note-counter">{{ noteDraft.length }} / 400</div>
@@ -1439,6 +1477,15 @@ onMounted(async () => {
 .change-date {
   font-size: 12px;
   color: #8b93a1;
+}
+
+.change-current {
+  font-size: 11px;
+  font-weight: 600;
+  color: #16a34a;
+  background: #e8f7ee;
+  border-radius: 999px;
+  padding: 2px 8px;
 }
 
 .change-list {
