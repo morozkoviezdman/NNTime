@@ -40,18 +40,25 @@ else
 fi
 
 # Проверка, что в дампе есть наши таблицы
-if ! zcat "$FILE" | grep -q "CREATE TABLE public.work_logs"; then
+# (pg_dump запускается с --quote-all-identifiers, поэтому имена в кавычках)
+if ! zcat "$FILE" | grep -qE '^CREATE TABLE "?public"?\."?work_logs"?'; then
   echo "$(date -Is) ERROR в дампе нет таблицы work_logs — копия подозрительная" >&2
+  exit 1
+fi
+
+if ! zcat "$FILE" | grep -qE '^CREATE TABLE "?public"?\."?settings"?'; then
+  echo "$(date -Is) ERROR в дампе нет таблицы settings — копия подозрительная" >&2
   exit 1
 fi
 
 sha256sum "$FILE" > "$FILE.sha256"
 
 SIZE="$(du -h "$FILE" | cut -f1)"
-ROWS="$(zcat "$FILE" | grep -c '^COPY public.work_logs' || true)"
+ROWS="$(zcat "$FILE" | awk '/^COPY "?public"?\."?work_logs"? /{f=1;next} f&&/^\\\.$/{f=0} f{n++} END{print n+0}')"
+SETTINGS="$(zcat "$FILE" | awk '/^COPY "?public"?\."?settings"? /{f=1;next} f&&/^\\\.$/{f=0} f{n++} END{print n+0}')"
 
 # Ротация
 find "$DEST" -name 'nntime_*.sql.gz' -mtime +"$KEEP_DAYS" -delete
 find "$DEST" -name '*.sql.gz.sha256' -mtime +"$KEEP_DAYS" -delete
 
-echo "$(date -Is) OK $(basename "$FILE") $SIZE (work_logs: $ROWS блок)" | tee -a "$LOG"
+echo "$(date -Is) OK $(basename "$FILE") $SIZE | записей work_logs: $ROWS, строк settings: $SETTINGS" | tee -a "$LOG"
