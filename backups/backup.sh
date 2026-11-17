@@ -2,6 +2,7 @@
 # NNTime — резервная копия базы Supabase через pg_dump
 # Строка подключения хранится в /root/.nntime_db_url (права 600, одна строка).
 set -euo pipefail
+umask 077
 
 ENV_FILE="/root/.nntime_db_url"
 DEST="/root/backups/nntime"
