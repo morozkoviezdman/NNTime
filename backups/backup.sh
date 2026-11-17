@@ -8,8 +8,9 @@ umask 077
 ENV_FILE="/root/.nntime_db_url"
 DEST="/root/backups/nntime"
 LOG="$DEST/backup.log"
-KEEP_DAYS=60          # сколько дней хранить копии
-GATE_DAYS=5           # интервал между копиями, дней
+KEEP_DAYS=30          # сколько дней хранить копии
+GATE_DAYS=1           # копия каждый день
+REPORT_DAYS=7         # как часто присылать отчёт в Telegram
 FORCE="${FORCE:-0}"   # FORCE=1 — сделать копию немедленно, без проверки интервала
 
 HERMES_ENV="/root/.hermes/.env"
@@ -93,12 +94,29 @@ find "$DEST" -name '*.sql.gz.sha256' -mtime +"$KEEP_DAYS" -delete
 
 COUNT="$(ls -1 "$DEST"/nntime_*.sql.gz 2>/dev/null | wc -l | tr -d ' ')"
 TOTAL="$(du -sh "$DEST" 2>/dev/null | cut -f1)"
-NEXT="$(date -d "+${GATE_DAYS} days" +%d.%m.%Y)"
 
 echo "$(date -Is) OK $(basename "$FILE") $SIZE | записей work_logs: $ROWS, строк settings: $SETTINGS" | tee -a "$LOG"
 
-notify "✅ <b>Бэкап NNTime готов</b>
-Файл: <code>$(basename "$FILE")</code> — ${SIZE}
+# ── Отчёт в Telegram: раз в REPORT_DAYS дней (ошибки уходят всегда и сразу) ──
+REPORT_MARK="$DEST/.last_report"
+SEND_REPORT=0
+if [ ! -f "$REPORT_MARK" ]; then
+  SEND_REPORT=1
+else
+  MARK_AGE=$(( ( $(date +%s) - $(stat -c %Y "$REPORT_MARK") ) / 86400 ))
+  [ "$MARK_AGE" -ge "$REPORT_DAYS" ] && SEND_REPORT=1
+fi
+
+if [ "$SEND_REPORT" = "1" ]; then
+  PERIOD_FROM="$(date -d "-${REPORT_DAYS} days" +%d.%m.%Y)"
+  notify "📦 <b>Бэкапы NNTime: недельный отчёт</b> (${PERIOD_FROM} — $(date +%d.%m.%Y))
+Копий в хранилище: <b>${COUNT}</b>, общий вес: <b>${TOTAL}</b>
+Последняя: <code>$(basename "$FILE")</code> — ${SIZE}
 Записей в базе: ${ROWS}, настроек: ${SETTINGS}
-Всего копий: ${COUNT} на ${TOTAL}
-Хранение: ${KEEP_DAYS} дн. Следующая копия: ${NEXT}"
+Копии создаются каждый день, хранение ${KEEP_DAYS} дн."
+  touch "$REPORT_MARK"
+  echo "$(date -Is) REPORT отправлен недельный отчёт" >> "$LOG"
+else
+  echo "$(date -Is) INFO отчёт не отправлялся (раз в ${REPORT_DAYS} дн.)" >> "$LOG"
+fi
+
