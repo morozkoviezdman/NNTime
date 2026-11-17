@@ -151,36 +151,41 @@ export async function getPeriodOvertime(startDate: string, endDate: string) {
 }
 
 /**
- * Таблица settings в этой базе — одна общая строка (без user_id).
- * Читаем без фильтра по пользователю, чтобы не генерировать лишних
- * 400-х запросов на базах без колонки user_id.
+ * Настройки — персональные, у каждого аккаунта своя строка (settings.user_id).
+ * Если база старая и колонки user_id ещё нет, работаем как раньше:
+ * с единственной общей строкой.
  */
-async function readSettingsRows(): Promise<any[]> {
+export async function getSettings(): Promise<SettingsRow | null> {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Нет сессии')
 
-  const first = await supabase
+  const uid = session.user.id
+
+  const personal = await supabase
+    .from('settings')
+    .select('*')
+    .eq('user_id', uid)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+
+  if (!personal.error) {
+    const rows = (personal.data ?? []) as SettingsRow[]
+    return rows.length ? rows[0] : null
+  }
+
+  const col = missingColumn(personal.error)
+  if (col !== 'user_id') throw personal.error
+
+  // старая схема без user_id — одна общая строка на всё приложение
+  const global = await supabase
     .from('settings')
     .select('*')
     .order('updated_at', { ascending: false })
     .limit(1)
 
-  if (first.error) {
-    // на случай очень старой базы без updated_at
-    if (missingColumn(first.error) === 'updated_at') {
-      const second = await supabase.from('settings').select('*').limit(1)
-      if (second.error) throw second.error
-      return (second.data ?? []) as any[]
-    }
-    throw first.error
-  }
-  return (first.data ?? []) as any[]
-}
-
-/** Получить настройки (первую строку) */
-export async function getSettings(): Promise<SettingsRow | null> {
-  const rows = await readSettingsRows()
-  return rows.length ? (rows[0] as SettingsRow) : null
+  if (global.error) throw global.error
+  const rows = (global.data ?? []) as SettingsRow[]
+  return rows.length ? rows[0] : null
 }
 
 /** Обновить настройки */
@@ -190,6 +195,7 @@ export async function updateSettings(updates: Partial<SettingsRow>) {
 
   const userId = session.user.id
   const payload: Record<string, any> = {
+    user_id: userId,
     ask_note_on_record: updates.ask_note_on_record ?? false,
     end_of_shift_hour: updates.end_of_shift_hour ?? 18,
     end_of_shift_minute: updates.end_of_shift_minute ?? 0,
@@ -215,8 +221,8 @@ export async function updateSettings(updates: Partial<SettingsRow>) {
       error = res.error
       data = res.data
     } else {
-      const id = updates.id ?? `${userId}-settings`
-      const res = await supabase.from('settings').upsert({ id, ...payload }, { onConflict: 'id' })
+      // id — uuid с gen_random_uuid(), свой id не передаём
+      const res = await supabase.from('settings').insert(payload).select()
       error = res.error
       data = res.data
     }

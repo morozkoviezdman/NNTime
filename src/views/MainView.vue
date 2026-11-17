@@ -151,13 +151,11 @@ const printModal = () => {
 // ── Data loading ───────────────────────────────────────
 const loadSettings = async () => {
   try {
-    const userId = (authStore.user as any)?.id
     let data = await getSettings()
     const startVal = data?.period_start && data.period_start.trim() ? data.period_start : formatDateForInput(startDefault)
     const endVal = data?.period_end && data.period_end.trim() ? data.period_end : formatDateForInput(endDefault)
     if (!data) {
       await updateSettings({
-        id: `${userId}-settings`,
         end_of_shift_hour: 18,
         end_of_shift_minute: 0,
         period_start: startVal,

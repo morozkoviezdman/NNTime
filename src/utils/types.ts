@@ -13,6 +13,7 @@ export type Database = {
           period_end: string
           period_start: string
           updated_at: string
+          user_id: string
         }
         Insert: {
           ask_note_on_record?: boolean
@@ -21,6 +22,7 @@ export type Database = {
           period_end: string
           period_start: string
           updated_at?: string
+          user_id?: string
         }
         Update: {
           ask_note_on_record?: boolean
@@ -29,6 +31,7 @@ export type Database = {
           period_end?: string
           period_start?: string
           updated_at?: string
+          user_id?: string
         }
       }
       work_logs: {
