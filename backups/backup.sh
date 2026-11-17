@@ -1,31 +1,67 @@
 #!/usr/bin/env bash
-# NNTime — резервная копия базы Supabase через pg_dump
-# Строка подключения хранится в /root/.nntime_db_url (права 600, одна строка).
+# NNTime — резервная копия базы Supabase через pg_dump.
+# Cron запускает скрипт ежедневно, но копия создаётся только раз в GATE_DAYS дней.
+# После успешной копии в Telegram уходит краткий отчёт.
 set -euo pipefail
 umask 077
 
 ENV_FILE="/root/.nntime_db_url"
 DEST="/root/backups/nntime"
-KEEP_DAYS=30
 LOG="$DEST/backup.log"
+KEEP_DAYS=60          # сколько дней хранить копии
+GATE_DAYS=5           # интервал между копиями, дней
+FORCE="${FORCE:-0}"   # FORCE=1 — сделать копию немедленно, без проверки интервала
 
-if [ ! -r "$ENV_FILE" ]; then
-  echo "$(date -Is) ERROR нет файла со строкой подключения: $ENV_FILE" >&2
+HERMES_ENV="/root/.hermes/.env"
+TG_TOKEN="$(grep -oP '^TELEGRAM_BOT_TOKEN=\K.*' "$HERMES_ENV" 2>/dev/null | head -1 | tr -d '"'"'"'\r' || true)"
+TG_CHAT="$(grep -oP '^TELEGRAM_HOME_CHANNEL=\K.*' "$HERMES_ENV" 2>/dev/null | head -1 | tr -d '"'"'"'\r' || true)"
+TG_THREAD="$(grep -oP '^TELEGRAM_HOME_CHANNEL_THREAD_ID=\K.*' "$HERMES_ENV" 2>/dev/null | head -1 | tr -d '"'"'"'\r' || true)"
+TG_CHAT="${TG_CHAT:--1004407829948}"
+TG_THREAD="${TG_THREAD:-1}"
+
+notify() {
+  [ -n "${TG_TOKEN}" ] || return 0
+  # тема (message_thread_id) не передаём: в этом чате отправка с темой отклоняется
+  curl -s --max-time 20 -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+    -d "chat_id=${TG_CHAT}" \
+    -d "parse_mode=HTML" \
+    -d "disable_web_page_preview=true" \
+    --data-urlencode "text=$1" >/dev/null 2>&1 || true
+}
+
+fail() {
+  local reason="$1"
+  echo "$(date -Is) ERROR ${reason}" >&2
+  echo "$(date -Is) ERROR ${reason}" >> "$LOG"
+  notify "⚠️ <b>Бэкап NNTime не выполнен</b>
+Причина: ${reason}
+Проверить: <code>tail -20 /root/backups/nntime/backup.log</code>"
   exit 1
-fi
+}
+
+[ -r "$ENV_FILE" ] || fail "нет файла со строкой подключения ${ENV_FILE}"
 
 DB_URL="$(tr -d '\r\n' < "$ENV_FILE")"
-if [ -z "$DB_URL" ]; then
-  echo "$(date -Is) ERROR файл $ENV_FILE пустой" >&2
-  exit 1
-fi
+[ -n "$DB_URL" ] || fail "файл ${ENV_FILE} пустой"
 
 mkdir -p "$DEST"
+
+# ── Интервал: не чаще раза в GATE_DAYS дней ──
+if [ "$FORCE" != "1" ]; then
+  LAST_FILE="$(ls -1t "$DEST"/nntime_*.sql.gz 2>/dev/null | head -1 || true)"
+  if [ -n "$LAST_FILE" ]; then
+    AGE_DAYS=$(( ( $(date +%s) - $(stat -c %Y "$LAST_FILE") ) / 86400 ))
+    if [ "$AGE_DAYS" -lt "$GATE_DAYS" ]; then
+      echo "$(date -Is) SKIP последняя копия ${AGE_DAYS} дн. назад, интервал ${GATE_DAYS} дн."
+      exit 0
+    fi
+  fi
+fi
 
 STAMP="$(date +%F_%H%M)"
 FILE="$DEST/nntime_${STAMP}.sql.gz"
 
-# Дамп только прикладной схемы public: таблицы, данные, индексы, политики RLS
+# Дамп прикладной схемы public: таблицы, данные, индексы, политики RLS
 if pg_dump "$DB_URL" \
       --schema=public \
       --no-owner \
@@ -36,21 +72,14 @@ if pg_dump "$DB_URL" \
   mv "$FILE.tmp" "$FILE"
 else
   rm -f "$FILE.tmp"
-  echo "$(date -Is) ERROR pg_dump завершился с ошибкой, см. $LOG" >&2
-  exit 1
+  fail "pg_dump завершился с ошибкой, см. backup.log"
 fi
 
-# Проверка, что в дампе есть наши таблицы
-# (pg_dump запускается с --quote-all-identifiers, поэтому имена в кавычках)
-if ! zcat "$FILE" | grep -qE '^CREATE TABLE "?public"?\."?work_logs"?'; then
-  echo "$(date -Is) ERROR в дампе нет таблицы work_logs — копия подозрительная" >&2
-  exit 1
-fi
-
-if ! zcat "$FILE" | grep -qE '^CREATE TABLE "?public"?\."?settings"?'; then
-  echo "$(date -Is) ERROR в дампе нет таблицы settings — копия подозрительная" >&2
-  exit 1
-fi
+# Проверка содержимого (имена в дампе в кавычках из-за --quote-all-identifiers)
+zcat "$FILE" | grep -qE '^CREATE TABLE "?public"?\."?work_logs"?' \
+  || fail "в дампе нет таблицы work_logs — копия подозрительная"
+zcat "$FILE" | grep -qE '^CREATE TABLE "?public"?\."?settings"?' \
+  || fail "в дампе нет таблицы settings — копия подозрительная"
 
 sha256sum "$FILE" > "$FILE.sha256"
 
@@ -58,8 +87,18 @@ SIZE="$(du -h "$FILE" | cut -f1)"
 ROWS="$(zcat "$FILE" | awk '/^COPY "?public"?\."?work_logs"? /{f=1;next} f&&/^\\\.$/{f=0} f{n++} END{print n+0}')"
 SETTINGS="$(zcat "$FILE" | awk '/^COPY "?public"?\."?settings"? /{f=1;next} f&&/^\\\.$/{f=0} f{n++} END{print n+0}')"
 
-# Ротация
+# Ротация старых копий
 find "$DEST" -name 'nntime_*.sql.gz' -mtime +"$KEEP_DAYS" -delete
 find "$DEST" -name '*.sql.gz.sha256' -mtime +"$KEEP_DAYS" -delete
 
+COUNT="$(ls -1 "$DEST"/nntime_*.sql.gz 2>/dev/null | wc -l | tr -d ' ')"
+TOTAL="$(du -sh "$DEST" 2>/dev/null | cut -f1)"
+NEXT="$(date -d "+${GATE_DAYS} days" +%d.%m.%Y)"
+
 echo "$(date -Is) OK $(basename "$FILE") $SIZE | записей work_logs: $ROWS, строк settings: $SETTINGS" | tee -a "$LOG"
+
+notify "✅ <b>Бэкап NNTime готов</b>
+Файл: <code>$(basename "$FILE")</code> — ${SIZE}
+Записей в базе: ${ROWS}, настроек: ${SETTINGS}
+Всего копий: ${COUNT} на ${TOTAL}
+Хранение: ${KEEP_DAYS} дн. Следующая копия: ${NEXT}"
