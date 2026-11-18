@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { getSettings, getPeriodOvertime, updateSettings, getWorkLogs, getWorkLogByDate, deleteWorkLog, updateNote, recordWorkSession, updateWorkLog } from '@/utils/db'
@@ -45,30 +45,12 @@ const filterOptions = [
   { m: 180, label: '> 3 ч' },
 ]
 const filterLabel = computed(() => filterOptions.find((o) => o.m === reportMinMinutes.value)?.label ?? 'Все')
-const filteredLogs = computed(() => {
+
+// записи, прошедшие только порог по минутам (по ним строится график)
+const thresholdLogs = computed(() => {
   if (!reportMinMinutes.value) return workLogs.value
   return workLogs.value.filter((log: any) => (log.overtime_minutes ?? 0) > reportMinMinutes.value)
 })
-const filteredMinutes = computed(() =>
-  filteredLogs.value.reduce((sum: number, log: any) => sum + (Number(log.overtime_minutes) || 0), 0),
-)
-const maxFilteredMinutes = computed(() =>
-  Math.max(60, ...filteredLogs.value.map((log: any) => Number(log.overtime_minutes) || 0)),
-)
-
-// подкраска строк отчёта: чем больше сверхнорма, тем насыщеннее зелёный (только на экране)
-const rowStyle = (minutes: number) => {
-  const t = Math.min(1, Math.max(0, (Number(minutes) || 0) / maxFilteredMinutes.value))
-  const k = Math.pow(t, 0.8)
-  const mix = (from: number[], to: number[]) =>
-    `rgb(${from.map((c, i) => Math.round(c + (to[i] - c) * k)).join(',')})`
-  return {
-    // тёплая шкала: от почти белого к янтарному
-    backgroundColor: mix([255, 254, 249], [254, 240, 170]),
-    // насыщенная полоса слева — видно даже на белом фоне
-    borderLeft: `4px solid ${mix([253, 230, 138], [245, 158, 11])}`,
-  }
-}
 
 const plural = (n: number, one: string, few: string, many: string) => {
   const m10 = n % 10
@@ -117,7 +99,7 @@ const stepLabel = computed(
 const buckets = computed(() => {
   const a = parseDay(periodStart.value)
   const b = parseDay(periodEnd.value)
-  const list: { key: string; label: string; minutes: number; count: number }[] = []
+  const list: { key: string; label: string; minutes: number; count: number; from: string; to: string }[] = []
   if (!a || !b || b < a) return list
 
   const step = chartStep.value
@@ -148,7 +130,7 @@ const buckets = computed(() => {
       label = `${q} кв${from.getMonth() === 0 || list.length === 0 ? ` ${String(from.getFullYear()).slice(2)}` : ''}`
     }
 
-    list.push({ key: dkey(from), label, minutes: 0, count: 0 })
+    list.push({ key: dkey(from), label, minutes: 0, count: 0, from: dkey(from), to: dkey(to < b ? to : b) })
     cursor.setTime(to.getTime())
     cursor.setDate(cursor.getDate() + 1)
     guard += 1
@@ -166,7 +148,7 @@ const buckets = computed(() => {
     return dkey(x)
   }
 
-  for (const log of filteredLogs.value) {
+  for (const log of thresholdLogs.value) {
     const d = parseDay(log.date)
     if (!d) continue
     const i = index.get(keyFor(d))
@@ -201,8 +183,12 @@ const bars = computed(() => {
       y: PAD_T + plotH - h,
       w: barW,
       h,
+      key: b.key,
+      empty: b.minutes === 0,
       label: b.label,
-      title: `${b.label}: ${formatDuration(b.minutes)} · ${b.count} ${plural(b.count, 'запись', 'записи', 'записей')}`,
+      title:
+        `${b.label}: ${formatDuration(b.minutes)} · ${b.count} ${plural(b.count, 'запись', 'записи', 'записей')}` +
+        (b.minutes > 0 ? ' · нажмите, чтобы отфильтровать' : ''),
     }
   })
   const grid = [0, 0.5, 1].map((k) => ({
@@ -217,8 +203,64 @@ const bars = computed(() => {
   return { items, grid, xLabels, plotH, plotW }
 })
 
+// выбранный пользователем столбик графика
+const selectedBucketKey = ref<string | null>(null)
+const selectedBucket = computed(() => {
+  if (!selectedBucketKey.value) return null
+  return buckets.value.find((b) => b.key === selectedBucketKey.value) ?? null
+})
+const selectedRangeLabel = computed(() => {
+  const b = selectedBucket.value
+  if (!b) return ''
+  return b.from === b.to ? displayShort(b.from) : `${displayShort(b.from)} — ${displayShort(b.to)}`
+})
+const toggleBucket = (key: string) => {
+  selectedBucketKey.value = selectedBucketKey.value === key ? null : key
+}
+
+// записи для таблицы: порог по минутам + выбранный промежуток
+const filteredLogs = computed(() => {
+  const bucket = selectedBucket.value
+  if (!bucket) return thresholdLogs.value
+  return thresholdLogs.value.filter((log: any) => log.date >= bucket.from && log.date <= bucket.to)
+})
+
+// если период сменили и выбранного промежутка больше нет — сбрасываем выбор
+watch(buckets, (list) => {
+  if (selectedBucketKey.value && !list.some((b) => b.key === selectedBucketKey.value)) {
+    selectedBucketKey.value = null
+  }
+})
+const filteredMinutes = computed(() =>
+  filteredLogs.value.reduce((sum: number, log: any) => sum + (Number(log.overtime_minutes) || 0), 0),
+)
+const maxFilteredMinutes = computed(() =>
+  Math.max(60, ...filteredLogs.value.map((log: any) => Number(log.overtime_minutes) || 0)),
+)
+
+// подкраска строк отчёта: чем больше сверхнорма, тем насыщеннее зелёный (только на экране)
+const rowStyle = (minutes: number) => {
+  const t = Math.min(1, Math.max(0, (Number(minutes) || 0) / maxFilteredMinutes.value))
+  const k = Math.pow(t, 0.8)
+  const mix = (from: number[], to: number[]) =>
+    `rgb(${from.map((c, i) => Math.round(c + (to[i] - c) * k)).join(',')})`
+  // тёплая шкала: от почти белого к янтарному
+  return { backgroundColor: mix([255, 254, 249], [254, 240, 170]) }
+}
+
+
 const changesOpen = ref(false)
 const changelog = [
+  {
+    version: 'v1.4.1',
+    date: '18 ноября 2026',
+    items: [
+      'Нажатие на столбик графика фильтрует отчёт по этому промежутку — повторное нажатие сбрасывает',
+      'Выбранный промежуток складывается с фильтрами «> 30 мин / > 1 ч / > 2 ч / > 3 ч», рядом появляется чип сброса',
+      'Печать и экспорт в CSV учитывают выбранный промежуток',
+      'Убрана цветная полоса слева в подсветке строк — осталась только заливка',
+    ],
+  },
   {
     version: 'v1.4.0',
     date: '17 ноября 2026',
@@ -273,9 +315,9 @@ const changelog = [
   },
 ]
 
-const version = 'v1.4.0'
+const version = 'v1.4.1'
 // дата выпуска версии — меняется вручную при выпуске, а не каждый день
-const releaseDate = '17 ноября 2026'
+const releaseDate = '18 ноября 2026'
 const brandIcon = `${import.meta.env.BASE_URL}icon.svg`
 
 const saveLoading = ref(false)
@@ -314,6 +356,12 @@ const showToast = (msg: string) => {
 }
 
 // ── Formatters ─────────────────────────────────────────
+// «18.11.2026» → «18.11»
+const displayShort = (dateStr: string) => {
+  const parts = (dateStr || '').split('-')
+  return parts.length === 3 ? `${parts[2]}.${parts[1]}` : dateStr
+}
+
 const formatDateDisplay = (dateStr: string) => {
   if (!dateStr) return '—'
   const parts = dateStr.split('-')
@@ -342,9 +390,12 @@ const printModal = () => {
 const exportDialogOpen = ref(false)
 const exportMode = ref<'csv' | 'share'>('csv')
 
-const currentFilterLabel = computed(() =>
-  reportMinMinutes.value ? `сверхнорма ${filterLabel.value}` : 'все записи за период',
-)
+const currentFilterLabel = computed(() => {
+  const parts: string[] = []
+  if (selectedBucket.value) parts.push(`промежуток ${selectedRangeLabel.value}`)
+  if (reportMinMinutes.value) parts.push(`сверхнорма ${filterLabel.value}`)
+  return parts.length ? parts.join(', ') : 'все записи за период'
+})
 
 const makeCsv = (withFilter: boolean) => {
   const logs = withFilter ? filteredLogs.value : workLogs.value
@@ -652,6 +703,8 @@ const closeReport = () => {
   reportOpen.value = false
   editingId.value = null
   currentNote.value = ''
+  selectedBucketKey.value = null
+  exportDialogOpen.value = false
   showToast('Окно закрыто')
 }
 
@@ -903,7 +956,7 @@ onMounted(async () => {
           <button class="close-btn" @click="closeReport" title="Закрыть">✕</button>
         </div>
         <div class="print-only print-title">
-          Отчёт за период {{ formatDateDisplay(periodStart) }} — {{ formatDateDisplay(periodEnd) }}<template v-if="reportMinMinutes"> · фильтр: сверхнорма {{ filterLabel }}</template>
+          Отчёт за период {{ formatDateDisplay(periodStart) }} — {{ formatDateDisplay(periodEnd) }}<template v-if="reportMinMinutes || selectedBucket"> · фильтр: {{ currentFilterLabel }}</template>
         </div>
 
         <div class="report-filters">
@@ -916,6 +969,14 @@ onMounted(async () => {
             :title="opt.m ? `Показать записи со сверхнормой ${opt.label}` : 'Показать все записи за период'"
           >
             {{ opt.label }}
+          </button>
+          <button
+            v-if="selectedBucket"
+            class="filter-chip filter-chip-range"
+            @click="selectedBucketKey = null"
+            :title="`Сбросить промежуток и показать весь период`"
+          >
+            {{ selectedRangeLabel }} ✕
           </button>
           <span class="filter-summary">
             {{ filteredLogs.length }} из {{ workLogs.length }}
@@ -955,6 +1016,12 @@ onMounted(async () => {
               :height="b.h"
               rx="2"
               class="chart-bar"
+              :class="{
+                'chart-bar-clickable': !b.empty,
+                'chart-bar-selected': selectedBucketKey === b.key,
+                'chart-bar-dim': selectedBucketKey && selectedBucketKey !== b.key,
+              }"
+              @click="!b.empty && toggleBucket(b.key)"
             ><title>{{ b.title }}</title></rect>
             <text
               v-for="(l, i) in bars.xLabels"
@@ -966,6 +1033,7 @@ onMounted(async () => {
               text-anchor="middle"
             >{{ l.label }}</text>
           </svg>
+          <div v-if="!selectedBucketKey" class="chart-hint">Нажмите на столбик, чтобы показать только этот промежуток</div>
         </div>
 
         <div class="report-table-wrap">
@@ -2061,6 +2129,37 @@ onMounted(async () => {
 
 .chart-bar:hover {
   fill-opacity: 1;
+}
+
+.chart-bar-clickable {
+  cursor: pointer;
+}
+
+.chart-bar-selected {
+  fill-opacity: 1;
+  fill: #1d4ed8;
+}
+
+.chart-bar-dim {
+  fill: #c7d2fe;
+  fill-opacity: 0.9;
+}
+
+.chart-hint {
+  margin-top: 6px;
+  text-align: center;
+  font-size: 11px;
+  color: #9aa3b2;
+}
+
+.filter-chip-range {
+  background: #eef3ff;
+  border-color: #b7cefb;
+  color: #1d4ed8;
+}
+
+.filter-chip-range:hover {
+  background: #dde8ff;
 }
 
 .report-table-wrap {
