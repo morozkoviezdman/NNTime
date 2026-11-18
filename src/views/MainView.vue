@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { getSettings, getPeriodOvertime, updateSettings, getWorkLogs, getWorkLogByDate, deleteWorkLog, updateNote, recordWorkSession, updateWorkLog } from '@/utils/db'
+import { buildReportCsv, reportFileName } from '@/utils/export'
 import { supabase } from '@/supabaseClient'
 
 const authStore = useAuthStore()
@@ -58,11 +59,15 @@ const maxFilteredMinutes = computed(() =>
 // подкраска строк отчёта: чем больше сверхнорма, тем насыщеннее зелёный (только на экране)
 const rowStyle = (minutes: number) => {
   const t = Math.min(1, Math.max(0, (Number(minutes) || 0) / maxFilteredMinutes.value))
-  const k = Math.pow(t, 0.75)
-  const from = [250, 254, 251]
-  const to = [187, 247, 208]
-  const mix = from.map((c, i) => Math.round(c + (to[i] - c) * k))
-  return { backgroundColor: `rgb(${mix.join(',')})` }
+  const k = Math.pow(t, 0.8)
+  const mix = (from: number[], to: number[]) =>
+    `rgb(${from.map((c, i) => Math.round(c + (to[i] - c) * k)).join(',')})`
+  return {
+    // тёплая шкала: от почти белого к янтарному
+    backgroundColor: mix([255, 254, 249], [254, 240, 170]),
+    // насыщенная полоса слева — видно даже на белом фоне
+    borderLeft: `4px solid ${mix([253, 230, 138], [245, 158, 11])}`,
+  }
 }
 
 const plural = (n: number, one: string, few: string, many: string) => {
@@ -74,7 +79,6 @@ const plural = (n: number, one: string, few: string, many: string) => {
 }
 
 // ── график в отчёте ─────────────────────────────────────────────
-const chartMode = ref<'bars' | 'heat'>('bars')
 const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
 const pad2 = (n: number) => String(n).padStart(2, '0')
 const dkey = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
@@ -213,40 +217,21 @@ const bars = computed(() => {
   return { items, grid, xLabels, plotH, plotW }
 })
 
-const heatCells = computed(() => {
-  const a = parseDay(periodStart.value)
-  const b = parseDay(periodEnd.value)
-  if (!a || !b || b < a) return []
-  const maxMin = Math.max(60, ...filteredLogs.value.map((log: any) => Number(log.overtime_minutes) || 0))
-  const cells: { key: string; minutes: number; level: number; inPeriod: boolean; title: string }[] = []
-  const cursor = startOfWeek(a)
-  let guard = 0
-  while (cursor <= b && guard < 1200) {
-    const inPeriod = cursor >= a && cursor <= b
-    cells.push({ key: dkey(cursor), minutes: 0, level: 0, inPeriod, title: '' })
-    cursor.setDate(cursor.getDate() + 1)
-    guard += 1
-  }
-  const map = new Map(cells.map((c) => [c.key, c]))
-  for (const log of filteredLogs.value) {
-    const d = parseDay(log.date)
-    if (!d) continue
-    const c = map.get(dkey(d))
-    if (!c) continue
-    c.minutes += Number(log.overtime_minutes) || 0
-  }
-  for (const c of cells) {
-    const r = c.minutes / maxMin
-    c.level = !c.minutes ? 0 : r > 0.75 ? 4 : r > 0.5 ? 3 : r > 0.25 ? 2 : 1
-    c.title = c.inPeriod
-      ? `${formatDateDisplay(c.key)}: ${c.minutes ? formatDuration(c.minutes) : 'нет записи'}`
-      : ''
-  }
-  return cells
-})
-const heatCols = computed(() => Math.ceil(heatCells.value.length / 7))
 const changesOpen = ref(false)
 const changelog = [
+  {
+    version: 'v1.4.0',
+    date: '17 ноября 2026',
+    items: [
+      'График сверхнормы в отчёте: по дням, неделям или месяцам — шаг подбирается по длине периода',
+      'Фильтр «> 30 мин» рядом с прежними «> 1 ч», «> 2 ч», «> 3 ч»',
+      'В шапке отчёта — количество записей и общая сумма часов, меняются вместе с фильтром',
+      'Подсветка строк по величине сверхнормы: тёплая шкала и полоса слева (только на экране)',
+      'Экспорт отчёта в CSV для Excel и Google Таблиц, кнопка «Поделиться» для Telegram и почты',
+      'Исправлено: период и время начала переработки стали персональными для каждого аккаунта — раньше общая настройка менялась у всех',
+      'Исправлено: в подвале показывалась сегодняшняя дата вместо даты выпуска версии',
+    ],
+  },
   {
     version: 'v1.3.0',
     date: '8 ноября 2026',
@@ -288,9 +273,10 @@ const changelog = [
   },
 ]
 
-const version = 'v1.3.0'
+const version = 'v1.4.0'
+// дата выпуска версии — меняется вручную при выпуске, а не каждый день
+const releaseDate = '17 ноября 2026'
 const brandIcon = `${import.meta.env.BASE_URL}icon.svg`
-const buildDate = new Date().toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric' })
 
 const saveLoading = ref(false)
 const saveButtonText = ref('Сохранить')
@@ -350,6 +336,84 @@ const formatDuration = (minutes: number) => {
 
 const printModal = () => {
   (window as any).print()
+}
+
+// ── Экспорт отчёта: CSV и «Поделиться» ─────────────────
+const exportDialogOpen = ref(false)
+const exportMode = ref<'csv' | 'share'>('csv')
+
+const currentFilterLabel = computed(() =>
+  reportMinMinutes.value ? `сверхнорма ${filterLabel.value}` : 'все записи за период',
+)
+
+const makeCsv = (withFilter: boolean) => {
+  const logs = withFilter ? filteredLogs.value : workLogs.value
+  return buildReportCsv({
+    periodStart: periodStart.value,
+    periodEnd: periodEnd.value,
+    filterLabel: withFilter ? currentFilterLabel.value : 'все записи за период',
+    logs: logs.map((log: any) => ({
+      date: log.date,
+      press_time: log.press_time,
+      overtime_minutes: Number(log.overtime_minutes) || 0,
+      note: log.note ?? '',
+    })),
+  })
+}
+
+const downloadCsv = (csv: string, name: string) => {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = name
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  setTimeout(() => URL.revokeObjectURL(url), 2000)
+}
+
+const runExport = async (mode: 'csv' | 'share', withFilter: boolean) => {
+  const csv = makeCsv(withFilter)
+  const name = reportFileName(periodStart.value, periodEnd.value)
+  const logs = withFilter ? filteredLogs.value : workLogs.value
+  const minutes = logs.reduce((sum: number, log: any) => sum + (Number(log.overtime_minutes) || 0), 0)
+  const summary =
+    `Отчёт NNTime за ${formatDateDisplay(periodStart.value)} — ${formatDateDisplay(periodEnd.value)}: ` +
+    `${logs.length} записей, ${formatDuration(minutes)}`
+
+  if (mode === 'share') {
+    const file = new File([csv], name, { type: 'text/csv;charset=utf-8' })
+    const nav = navigator as any
+    if (nav.canShare?.({ files: [file] }) && nav.share) {
+      try {
+        await nav.share({ files: [file], title: 'Отчёт NNTime', text: summary })
+        return
+      } catch (e: any) {
+        if (e?.name === 'AbortError') return
+      }
+    }
+    downloadCsv(csv, name)
+    showToast('Файл сохранён — отправить можно из «Загрузок»')
+    return
+  }
+
+  downloadCsv(csv, name)
+  showToast('CSV сохранён, открывается в Excel и Google Таблицах')
+}
+
+const startExport = (mode: 'csv' | 'share') => {
+  exportMode.value = mode
+  if (reportMinMinutes.value) {
+    exportDialogOpen.value = true
+    return
+  }
+  void runExport(mode, false)
+}
+
+const confirmExport = (withFilter: boolean) => {
+  exportDialogOpen.value = false
+  void runExport(exportMode.value, withFilter)
 }
 
 // ── Data loading ───────────────────────────────────────
@@ -757,7 +821,7 @@ onMounted(async () => {
 
     <!-- Version & Changes footer -->
     <div class="version-footer">
-      <span class="version-label">Версия {{ version }} · {{ buildDate }}</span>
+      <span class="version-label">Версия {{ version }} · {{ releaseDate }}</span>
       <button class="changes-btn" @click="changesOpen = true" title="История изменений">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
           <circle cx="12" cy="12" r="10"/>
@@ -862,23 +926,9 @@ onMounted(async () => {
         <div v-if="filteredLogs.length" class="report-chart">
           <div class="chart-head">
             <div class="chart-title">Сверхнорма {{ stepLabel }}</div>
-            <div class="chart-switch">
-              <button
-                class="switch-btn"
-                :class="{ 'switch-btn-active': chartMode === 'bars' }"
-                @click="chartMode = 'bars'"
-                title="Показать столбики по промежуткам"
-              >Столбики</button>
-              <button
-                class="switch-btn"
-                :class="{ 'switch-btn-active': chartMode === 'heat' }"
-                @click="chartMode = 'heat'"
-                title="Показать календарь по дням"
-              >Календарь</button>
-            </div>
           </div>
 
-          <svg v-if="chartMode === 'bars'" class="bar-chart" :viewBox="`0 0 ${CHART_W} ${CHART_H}`" role="img">
+          <svg class="bar-chart" :viewBox="`0 0 ${CHART_W} ${CHART_H}`" role="img" aria-label="График сверхнормы по промежуткам">
             <line
               v-for="g in bars.grid"
               :key="`g-${g.y}`"
@@ -916,27 +966,6 @@ onMounted(async () => {
               text-anchor="middle"
             >{{ l.label }}</text>
           </svg>
-
-          <div v-else class="heatmap-wrap">
-            <div class="heatmap" :style="{ gridTemplateColumns: `repeat(${heatCols}, 10px)` }">
-              <div
-                v-for="c in heatCells"
-                :key="c.key"
-                class="heat-cell"
-                :class="[`heat-level-${c.level}`, { 'heat-empty': !c.inPeriod }]"
-                :title="c.title"
-              ></div>
-            </div>
-            <div class="heat-legend">
-              меньше
-              <span class="heat-cell heat-level-0"></span>
-              <span class="heat-cell heat-level-1"></span>
-              <span class="heat-cell heat-level-2"></span>
-              <span class="heat-cell heat-level-3"></span>
-              <span class="heat-cell heat-level-4"></span>
-              больше
-            </div>
-          </div>
         </div>
 
         <div class="report-table-wrap">
@@ -985,8 +1014,46 @@ onMounted(async () => {
           </table>
         </div>
         <div class="report-footer">
-          <button class="print-action-btn" @click="printModal()" title="Напечатать отчёт">Печать</button>
-          <button class="close-action-btn" @click="closeReport" title="Закрыть">Закрыть</button>
+          <button class="print-action-btn" @click="printModal()" title="Напечатать отчёт или сохранить в PDF через диалог печати">Печать</button>
+          <button
+            class="export-action-btn"
+            @click="startExport('csv')"
+            title="Скачать отчёт в CSV: откроется в Excel, Google Таблицах, Numbers, LibreOffice"
+          >Скачать CSV</button>
+          <button
+            class="export-action-btn"
+            @click="startExport('share')"
+            title="Отправить отчёт в Telegram, WhatsApp, почту или «Файлы» через системное меню"
+          >Поделиться</button>
+          <button class="close-action-btn" @click="closeReport" title="Закрыть отчёт">Закрыть</button>
+        </div>
+
+        <!-- выбор, что выгрузить, если включён фильтр -->
+        <div v-if="exportDialogOpen" class="export-dialog" @click.self="exportDialogOpen = false">
+          <div class="export-dialog-box">
+            <h4>Что выгрузить?</h4>
+            <p>
+              В отчёте включён фильтр <b>«{{ filterLabel }}»</b>.
+              Выгрузить только эти записи или всё за период?
+            </p>
+            <div class="export-dialog-actions">
+              <button
+                class="export-btn export-btn-primary"
+                @click="confirmExport(true)"
+                title="Выгрузить только записи, попавшие под фильтр"
+              >Только с фильтром</button>
+              <button
+                class="export-btn"
+                @click="confirmExport(false)"
+                title="Выгрузить все записи за выбранный период"
+              >Все за период</button>
+              <button
+                class="export-btn export-btn-ghost"
+                @click="exportDialogOpen = false"
+                title="Отменить выгрузку"
+              >Отмена</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1970,36 +2037,6 @@ onMounted(async () => {
   color: #4b5563;
 }
 
-.chart-switch {
-  display: inline-flex;
-  padding: 2px;
-  border-radius: 9px;
-  background: #f1f4f9;
-  gap: 2px;
-}
-
-.switch-btn {
-  border: none;
-  background: transparent;
-  border-radius: 7px;
-  padding: 4px 10px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #6b7280;
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s;
-}
-
-.switch-btn:hover {
-  color: #2563eb;
-}
-
-.switch-btn-active {
-  background: #ffffff;
-  color: #2563eb;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-
 .bar-chart {
   display: block;
   width: 100%;
@@ -2024,50 +2061,6 @@ onMounted(async () => {
 
 .chart-bar:hover {
   fill-opacity: 1;
-}
-
-.heatmap-wrap {
-  overflow-x: auto;
-  padding-bottom: 4px;
-}
-
-.heatmap {
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(7, 10px);
-  gap: 2px;
-  width: max-content;
-}
-
-.heat-cell {
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  display: inline-block;
-}
-
-.heat-level-0 { background: #eef1f6; }
-.heat-level-1 { background: #dbeafe; }
-.heat-level-2 { background: #bfdbfe; }
-.heat-level-3 { background: #60a5fa; }
-.heat-level-4 { background: #2563eb; }
-
-.heat-empty {
-  background: transparent;
-}
-
-.heat-legend {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 8px;
-  font-size: 11px;
-  color: #8b93a1;
-}
-
-.heat-legend .heat-cell {
-  width: 9px;
-  height: 9px;
 }
 
 .report-table-wrap {
@@ -2192,6 +2185,7 @@ onMounted(async () => {
 }
 
 .print-action-btn,
+.export-action-btn,
 .close-action-btn {
   flex: 1;
   padding: 12px 16px;
@@ -2210,6 +2204,90 @@ onMounted(async () => {
 
 .print-action-btn:hover {
   background: #1d4ed8;
+}
+
+.export-action-btn {
+  background: #ffffff;
+  color: #2563eb;
+  border: 1px solid #c7d7fb !important;
+}
+
+.export-action-btn:hover {
+  background: #eef3ff;
+  border-color: #2563eb !important;
+}
+
+/* диалог «что выгрузить» */
+.export-dialog {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 1200;
+}
+
+.export-dialog-box {
+  width: 100%;
+  max-width: 420px;
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 22px 24px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.2);
+}
+
+.export-dialog-box h4 {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #1a1d21;
+}
+
+.export-dialog-box p {
+  margin: 0 0 18px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #6b7280;
+}
+
+.export-dialog-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.export-btn {
+  padding: 11px 14px;
+  border: 1px solid #dfe4ee;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.export-btn:hover {
+  background: #f5f8ff;
+  border-color: #2563eb;
+}
+
+.export-btn-primary {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+}
+
+.export-btn-primary:hover {
+  background: #1d4ed8;
+}
+
+.export-btn-ghost {
+  background: #f8fafc;
+  color: #6b7280;
 }
 
 .close-action-btn {
@@ -2318,7 +2396,14 @@ onMounted(async () => {
   }
 
   .report-footer {
-    flex-direction: column;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 14px;
+
+  }
+
+  .report-footer > button {
+    flex: 1 1 calc(50% - 4px);
     gap: 10px;
     padding: 12px 16px;
   }
@@ -2699,6 +2784,7 @@ onMounted(async () => {
   .report-footer,
   .report-filters,
   .report-chart,
+  .export-dialog,
   .col-actions,
   .actions-cell,
   .empty-cell {
