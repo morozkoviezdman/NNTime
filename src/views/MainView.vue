@@ -34,13 +34,217 @@ const workLogs = ref<any[]>([])
 const currentNote = ref('')
 const editingId = ref<string | null>(null)
 const reportOpen = ref(false)
-// фильтр отчёта по величине сверхнормы: 0 — все, 1/2/3 — больше N часов
-const reportMinHours = ref(0)
+// фильтр отчёта по величине сверхнормы, в минутах (0 — все записи)
+const reportMinMinutes = ref(0)
+const filterOptions = [
+  { m: 0, label: 'Все' },
+  { m: 30, label: '> 30 мин' },
+  { m: 60, label: '> 1 ч' },
+  { m: 120, label: '> 2 ч' },
+  { m: 180, label: '> 3 ч' },
+]
+const filterLabel = computed(() => filterOptions.find((o) => o.m === reportMinMinutes.value)?.label ?? 'Все')
 const filteredLogs = computed(() => {
-  if (!reportMinHours.value) return workLogs.value
-  const minMinutes = reportMinHours.value * 60
-  return workLogs.value.filter((log: any) => (log.overtime_minutes ?? 0) > minMinutes)
+  if (!reportMinMinutes.value) return workLogs.value
+  return workLogs.value.filter((log: any) => (log.overtime_minutes ?? 0) > reportMinMinutes.value)
 })
+const filteredMinutes = computed(() =>
+  filteredLogs.value.reduce((sum: number, log: any) => sum + (Number(log.overtime_minutes) || 0), 0),
+)
+const maxFilteredMinutes = computed(() =>
+  Math.max(60, ...filteredLogs.value.map((log: any) => Number(log.overtime_minutes) || 0)),
+)
+
+// подкраска строк отчёта: чем больше сверхнорма, тем насыщеннее зелёный (только на экране)
+const rowStyle = (minutes: number) => {
+  const t = Math.min(1, Math.max(0, (Number(minutes) || 0) / maxFilteredMinutes.value))
+  const k = Math.pow(t, 0.6)
+  const from = [247, 254, 250]
+  const to = [167, 243, 208]
+  const mix = from.map((c, i) => Math.round(c + (to[i] - c) * k))
+  return { backgroundColor: `rgb(${mix.join(',')})` }
+}
+
+const plural = (n: number, one: string, few: string, many: string) => {
+  const m10 = n % 10
+  const m100 = n % 100
+  if (m10 === 1 && m100 !== 11) return one
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few
+  return many
+}
+
+// ── график в отчёте ─────────────────────────────────────────────
+const chartMode = ref<'bars' | 'heat'>('bars')
+const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
+const pad2 = (n: number) => String(n).padStart(2, '0')
+const dkey = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+const parseDay = (s: string) => {
+  if (!s) return null
+  const d = new Date(`${s}T00:00:00`)
+  return isNaN(d.getTime()) ? null : d
+}
+const startOfWeek = (d: Date) => {
+  const x = new Date(d)
+  const wd = (x.getDay() + 6) % 7
+  x.setDate(x.getDate() - wd)
+  x.setHours(0, 0, 0, 0)
+  return x
+}
+
+const periodDays = computed(() => {
+  const a = parseDay(periodStart.value)
+  const b = parseDay(periodEnd.value)
+  if (!a || !b || b < a) return 0
+  return Math.round((b.getTime() - a.getTime()) / 86400000) + 1
+})
+
+// шаг группировки зависит от длины периода
+const chartStep = computed<'day' | 'week' | 'month' | 'quarter'>(() => {
+  const d = periodDays.value
+  if (d <= 14) return 'day'
+  if (d <= 90) return 'week'
+  if (d <= 730) return 'month'
+  return 'quarter'
+})
+const stepLabel = computed(
+  () => ({ day: 'по дням', week: 'по неделям', month: 'по месяцам', quarter: 'по кварталам' })[chartStep.value],
+)
+
+const buckets = computed(() => {
+  const a = parseDay(periodStart.value)
+  const b = parseDay(periodEnd.value)
+  const list: { key: string; label: string; minutes: number; count: number }[] = []
+  if (!a || !b || b < a) return list
+
+  const step = chartStep.value
+  const cursor = new Date(a)
+  if (step === 'week') cursor.setTime(startOfWeek(cursor).getTime())
+  if (step === 'month') cursor.setDate(1)
+  if (step === 'quarter') {
+    cursor.setDate(1)
+    cursor.setMonth(Math.floor(cursor.getMonth() / 3) * 3)
+  }
+
+  let guard = 0
+  while (cursor <= b && guard < 2000) {
+    const from = new Date(cursor)
+    const to = new Date(cursor)
+    if (step === 'day') to.setDate(to.getDate() + 1)
+    else if (step === 'week') to.setDate(to.getDate() + 7)
+    else if (step === 'month') to.setMonth(to.getMonth() + 1)
+    else to.setMonth(to.getMonth() + 3)
+    to.setDate(to.getDate() - 1)
+
+    let label = `${pad2(from.getDate())}.${pad2(from.getMonth() + 1)}`
+    // год подписываем только в январе и на самом первом столбце — иначе подписи наезжают
+    const yearTag = from.getMonth() === 0 || list.length === 0 ? ` ${String(from.getFullYear()).slice(2)}` : ''
+    if (step === 'month') label = `${MONTHS_SHORT[from.getMonth()]}${yearTag}`
+    if (step === 'quarter') {
+      const q = ['I', 'II', 'III', 'IV'][Math.floor(from.getMonth() / 3)]
+      label = `${q} кв${from.getMonth() === 0 || list.length === 0 ? ` ${String(from.getFullYear()).slice(2)}` : ''}`
+    }
+
+    list.push({ key: dkey(from), label, minutes: 0, count: 0 })
+    cursor.setTime(to.getTime())
+    cursor.setDate(cursor.getDate() + 1)
+    guard += 1
+  }
+
+  const index = new Map(list.map((b2, i) => [b2.key, i]))
+  const keyFor = (d: Date) => {
+    const x = new Date(d)
+    if (step === 'week') x.setTime(startOfWeek(x).getTime())
+    if (step === 'month') x.setDate(1)
+    if (step === 'quarter') {
+      x.setDate(1)
+      x.setMonth(Math.floor(x.getMonth() / 3) * 3)
+    }
+    return dkey(x)
+  }
+
+  for (const log of filteredLogs.value) {
+    const d = parseDay(log.date)
+    if (!d) continue
+    const i = index.get(keyFor(d))
+    if (i === undefined) continue
+    list[i].minutes += Number(log.overtime_minutes) || 0
+    list[i].count += 1
+  }
+  return list
+})
+
+const CHART_W = 600
+const CHART_H = 170
+const PAD_L = 40
+const PAD_R = 10
+const PAD_T = 12
+const PAD_B = 26
+
+const bars = computed(() => {
+  const data = buckets.value
+  const plotW = CHART_W - PAD_L - PAD_R
+  const plotH = CHART_H - PAD_T - PAD_B
+  if (!data.length) return { items: [], grid: [], xLabels: [], plotH, plotW }
+  const maxMin = Math.max(60, ...data.map((b) => b.minutes))
+  const niceMax = Math.ceil(maxMin / 60) * 60
+  const stepX = plotW / data.length
+  const barW = Math.max(2, Math.min(40, stepX * 0.62))
+  const items = data.map((b, i) => {
+    const h = b.minutes > 0 ? Math.max(2, (b.minutes / niceMax) * plotH) : 0
+    const x = PAD_L + stepX * i + (stepX - barW) / 2
+    return {
+      x,
+      y: PAD_T + plotH - h,
+      w: barW,
+      h,
+      label: b.label,
+      title: `${b.label}: ${formatDuration(b.minutes)} · ${b.count} ${plural(b.count, 'запись', 'записи', 'записей')}`,
+    }
+  })
+  const grid = [0, 0.5, 1].map((k) => ({
+    y: PAD_T + plotH - k * plotH,
+    label: `${Math.round((niceMax * k) / 60)} ч`,
+  }))
+  // подписи: на широком экране все (до 14), на узком каждая вторая скрывается через CSS
+  const every = data.length <= 14 ? 1 : Math.ceil(data.length / 9)
+  const xLabels = items
+    .filter((_, i) => i % every === 0)
+    .map((it, i) => ({ x: it.x + it.w / 2, label: it.label, alt: data.length > 8 && i % 2 === 1 }))
+  return { items, grid, xLabels, plotH, plotW }
+})
+
+const heatCells = computed(() => {
+  const a = parseDay(periodStart.value)
+  const b = parseDay(periodEnd.value)
+  if (!a || !b || b < a) return []
+  const maxMin = Math.max(60, ...filteredLogs.value.map((log: any) => Number(log.overtime_minutes) || 0))
+  const cells: { key: string; minutes: number; level: number; inPeriod: boolean; title: string }[] = []
+  const cursor = startOfWeek(a)
+  let guard = 0
+  while (cursor <= b && guard < 1200) {
+    const inPeriod = cursor >= a && cursor <= b
+    cells.push({ key: dkey(cursor), minutes: 0, level: 0, inPeriod, title: '' })
+    cursor.setDate(cursor.getDate() + 1)
+    guard += 1
+  }
+  const map = new Map(cells.map((c) => [c.key, c]))
+  for (const log of filteredLogs.value) {
+    const d = parseDay(log.date)
+    if (!d) continue
+    const c = map.get(dkey(d))
+    if (!c) continue
+    c.minutes += Number(log.overtime_minutes) || 0
+  }
+  for (const c of cells) {
+    const r = c.minutes / maxMin
+    c.level = !c.minutes ? 0 : r > 0.75 ? 4 : r > 0.5 ? 3 : r > 0.25 ? 2 : 1
+    c.title = c.inPeriod
+      ? `${formatDateDisplay(c.key)}: ${c.minutes ? formatDuration(c.minutes) : 'нет записи'}`
+      : ''
+  }
+  return cells
+})
+const heatCols = computed(() => Math.ceil(heatCells.value.length / 7))
 const changesOpen = ref(false)
 const changelog = [
   {
@@ -622,27 +826,117 @@ onMounted(async () => {
     <div v-if="reportOpen" class="report-modal" @click.self="closeReport">
       <div class="report-modal-content">
         <div class="report-modal-header">
-          <h3>Отчёт за выбранный период</h3>
+          <div class="report-header-text">
+            <h3>Отчёт за выбранный период</h3>
+            <div class="report-header-meta">
+              <span>{{ formatDateDisplay(periodStart) }} — {{ formatDateDisplay(periodEnd) }}</span>
+              <span class="meta-sep">·</span>
+              <span><b>{{ filteredLogs.length }}</b> {{ plural(filteredLogs.length, 'запись', 'записи', 'записей') }}</span>
+              <span class="meta-sep">·</span>
+              <span>всего <b>{{ formatDuration(filteredMinutes) }}</b></span>
+            </div>
+          </div>
           <button class="close-btn" @click="closeReport" title="Закрыть">✕</button>
         </div>
         <div class="print-only print-title">
-          Отчёт за период {{ formatDateDisplay(periodStart) }} — {{ formatDateDisplay(periodEnd) }}<template v-if="reportMinHours"> · сверхнорма больше {{ reportMinHours }} ч</template>
+          Отчёт за период {{ formatDateDisplay(periodStart) }} — {{ formatDateDisplay(periodEnd) }}<template v-if="reportMinMinutes"> · фильтр: сверхнорма {{ filterLabel }}</template>
         </div>
 
         <div class="report-filters">
           <button
-            v-for="opt in [{ h: 0, label: 'Все' }, { h: 1, label: '> 1 ч' }, { h: 2, label: '> 2 ч' }, { h: 3, label: '> 3 ч' }]"
-            :key="opt.h"
+            v-for="opt in filterOptions"
+            :key="opt.m"
             class="filter-chip"
-            :class="{ 'filter-chip-active': reportMinHours === opt.h }"
-            @click="reportMinHours = opt.h"
-            :title="opt.h ? `Показать записи со сверхнормой больше ${opt.h} ч` : 'Показать все записи за период'"
+            :class="{ 'filter-chip-active': reportMinMinutes === opt.m }"
+            @click="reportMinMinutes = opt.m"
+            :title="opt.m ? `Показать записи со сверхнормой ${opt.label}` : 'Показать все записи за период'"
           >
             {{ opt.label }}
           </button>
           <span class="filter-summary">
             {{ filteredLogs.length }} из {{ workLogs.length }}
           </span>
+        </div>
+
+        <!-- График сверхнормы: реагирует на фильтр, на печать не выводится -->
+        <div v-if="filteredLogs.length" class="report-chart">
+          <div class="chart-head">
+            <div class="chart-title">Сверхнорма {{ stepLabel }}</div>
+            <div class="chart-switch">
+              <button
+                class="switch-btn"
+                :class="{ 'switch-btn-active': chartMode === 'bars' }"
+                @click="chartMode = 'bars'"
+                title="Показать столбики по промежуткам"
+              >Столбики</button>
+              <button
+                class="switch-btn"
+                :class="{ 'switch-btn-active': chartMode === 'heat' }"
+                @click="chartMode = 'heat'"
+                title="Показать календарь по дням"
+              >Календарь</button>
+            </div>
+          </div>
+
+          <svg v-if="chartMode === 'bars'" class="bar-chart" :viewBox="`0 0 ${CHART_W} ${CHART_H}`" role="img">
+            <line
+              v-for="g in bars.grid"
+              :key="`g-${g.y}`"
+              :x1="PAD_L"
+              :x2="CHART_W - PAD_R"
+              :y1="g.y"
+              :y2="g.y"
+              class="grid-line"
+            />
+            <text
+              v-for="g in bars.grid"
+              :key="`gl-${g.y}`"
+              :x="PAD_L - 8"
+              :y="g.y + 4"
+              class="axis-label"
+              text-anchor="end"
+            >{{ g.label }}</text>
+            <rect
+              v-for="(b, i) in bars.items"
+              :key="`b-${i}`"
+              :x="b.x"
+              :y="b.y"
+              :width="b.w"
+              :height="b.h"
+              rx="2"
+              class="chart-bar"
+            ><title>{{ b.title }}</title></rect>
+            <text
+              v-for="(l, i) in bars.xLabels"
+              :key="`xl-${i}`"
+              :x="l.x"
+              :y="CHART_H - 8"
+              class="axis-label x-label"
+              :class="{ 'x-label-alt': l.alt }"
+              text-anchor="middle"
+            >{{ l.label }}</text>
+          </svg>
+
+          <div v-else class="heatmap-wrap">
+            <div class="heatmap" :style="{ gridTemplateColumns: `repeat(${heatCols}, 10px)` }">
+              <div
+                v-for="c in heatCells"
+                :key="c.key"
+                class="heat-cell"
+                :class="[`heat-level-${c.level}`, { 'heat-empty': !c.inPeriod }]"
+                :title="c.title"
+              ></div>
+            </div>
+            <div class="heat-legend">
+              меньше
+              <span class="heat-cell heat-level-0"></span>
+              <span class="heat-cell heat-level-1"></span>
+              <span class="heat-cell heat-level-2"></span>
+              <span class="heat-cell heat-level-3"></span>
+              <span class="heat-cell heat-level-4"></span>
+              больше
+            </div>
+          </div>
         </div>
 
         <div class="report-table-wrap">
@@ -662,7 +956,7 @@ onMounted(async () => {
                   {{ workLogs.length === 0 ? 'За выбранный период записей нет' : 'Нет записей с такой сверхнормой' }}
                 </td>
               </tr>
-              <tr v-for="(log, index) in filteredLogs" :key="index">
+              <tr v-for="(log, index) in filteredLogs" :key="index" :style="rowStyle(log.overtime_minutes)">
                 <td data-label="Дата">{{ formatDateDisplay(log.date) }}</td>
                 <td data-label="Время выхода">{{ formatTime(log.press_time) }}</td>
                 <td data-label="Сверхнорма">{{ formatDuration(log.overtime_minutes) }}</td>
@@ -1626,6 +1920,156 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
+/* ── шапка отчёта: период, количество записей, сумма часов ── */
+.report-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.report-header-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #6b7280;
+}
+
+.report-header-meta b {
+  color: #1f2937;
+  font-weight: 700;
+}
+
+.meta-sep {
+  color: #c3c9d4;
+}
+
+/* ── график ── */
+.report-chart {
+  margin: 14px 24px 0;
+  padding: 14px 16px 10px;
+  border: 1px solid #e5e8ef;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+}
+
+.chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.chart-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #4b5563;
+}
+
+.chart-switch {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 9px;
+  background: #f1f4f9;
+  gap: 2px;
+}
+
+.switch-btn {
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.switch-btn:hover {
+  color: #2563eb;
+}
+
+.switch-btn-active {
+  background: #ffffff;
+  color: #2563eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.bar-chart {
+  display: block;
+  width: 100%;
+  height: 170px;
+}
+
+.grid-line {
+  stroke: #eef1f6;
+  stroke-width: 1;
+}
+
+.axis-label {
+  font-size: 10px;
+  fill: #8b93a1;
+}
+
+.chart-bar {
+  fill: #2563eb;
+  fill-opacity: 0.85;
+  transition: fill-opacity 0.15s;
+}
+
+.chart-bar:hover {
+  fill-opacity: 1;
+}
+
+.heatmap-wrap {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.heatmap {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 10px);
+  gap: 2px;
+  width: max-content;
+}
+
+.heat-cell {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.heat-level-0 { background: #eef1f6; }
+.heat-level-1 { background: #dbeafe; }
+.heat-level-2 { background: #bfdbfe; }
+.heat-level-3 { background: #60a5fa; }
+.heat-level-4 { background: #2563eb; }
+
+.heat-empty {
+  background: transparent;
+}
+
+.heat-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: #8b93a1;
+}
+
+.heat-legend .heat-cell {
+  width: 9px;
+  height: 9px;
+}
+
 .report-table-wrap {
   overflow-y: auto;
   overflow-x: hidden;
@@ -2061,6 +2505,28 @@ onMounted(async () => {
     gap: 6px;
   }
 
+  .report-chart {
+    margin: 10px 14px 0;
+    padding: 10px 12px 8px;
+  }
+
+  .bar-chart {
+    height: 150px;
+  }
+
+  .axis-label {
+    font-size: 9px;
+  }
+
+  .chart-title {
+    font-size: 12px;
+  }
+
+  /* на узком экране половина подписей скрывается, чтобы не наезжали */
+  .x-label-alt {
+    display: none;
+  }
+
   .filter-chip {
     height: 28px;
     padding: 0 11px;
@@ -2232,10 +2698,17 @@ onMounted(async () => {
   .report-modal-header .close-btn,
   .report-footer,
   .report-filters,
+  .report-chart,
   .col-actions,
   .actions-cell,
   .empty-cell {
     display: none !important;
+  }
+
+  /* подкраску строк на печати убираем */
+  .report-table tr,
+  .report-table td {
+    background: #fff !important;
   }
 
   .print-only {
