@@ -58,9 +58,9 @@ const maxFilteredMinutes = computed(() =>
 // подкраска строк отчёта: чем больше сверхнорма, тем насыщеннее зелёный (только на экране)
 const rowStyle = (minutes: number) => {
   const t = Math.min(1, Math.max(0, (Number(minutes) || 0) / maxFilteredMinutes.value))
-  const k = Math.pow(t, 0.6)
-  const from = [247, 254, 250]
-  const to = [167, 243, 208]
+  const k = Math.pow(t, 0.75)
+  const from = [250, 254, 251]
+  const to = [187, 247, 208]
   const mix = from.map((c, i) => Math.round(c + (to[i] - c) * k))
   return { backgroundColor: `rgb(${mix.join(',')})` }
 }
