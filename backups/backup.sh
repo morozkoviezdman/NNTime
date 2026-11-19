@@ -32,8 +32,8 @@ notify() {
 
 fail() {
   local reason="$1"
+  # одна запись: cron перенаправляет stderr в тот же лог
   echo "$(date -Is) ERROR ${reason}" >&2
-  echo "$(date -Is) ERROR ${reason}" >> "$LOG"
   notify "⚠️ <b>Бэкап NNTime не выполнен</b>
 Причина: ${reason}
 Проверить: <code>tail -20 /root/backups/nntime/backup.log</code>"
@@ -51,7 +51,11 @@ mkdir -p "$DEST"
 if [ "$FORCE" != "1" ]; then
   LAST_FILE="$(ls -1t "$DEST"/nntime_*.sql.gz 2>/dev/null | head -1 || true)"
   if [ -n "$LAST_FILE" ]; then
-    AGE_DAYS=$(( ( $(date +%s) - $(stat -c %Y "$LAST_FILE") ) / 86400 ))
+    # считаем разницу по календарным дням, а не по 24-часовым отрезкам:
+    # иначе копия, сделанная вечером вручную, отменяет утренний запуск на следующий день
+    LAST_DAY_TS="$(date -d "$(date -d "@$(stat -c %Y "$LAST_FILE")" +%F)" +%s)"
+    TODAY_TS="$(date -d "$(date +%F)" +%s)"
+    AGE_DAYS=$(( (TODAY_TS - LAST_DAY_TS) / 86400 ))
     if [ "$AGE_DAYS" -lt "$GATE_DAYS" ]; then
       echo "$(date -Is) SKIP последняя копия ${AGE_DAYS} дн. назад, интервал ${GATE_DAYS} дн."
       exit 0
@@ -77,10 +81,19 @@ else
 fi
 
 # Проверка содержимого (имена в дампе в кавычках из-за --quote-all-identifiers)
-zcat "$FILE" | grep -qE '^CREATE TABLE "?public"?\."?work_logs"?' \
-  || fail "в дампе нет таблицы work_logs — копия подозрительная"
-zcat "$FILE" | grep -qE '^CREATE TABLE "?public"?\."?settings"?' \
-  || fail "в дампе нет таблицы settings — копия подозрительная"
+# grep -c читает файл до конца: grep -q завершается досрочно, zcat получает SIGPIPE,
+# и с pipefail проверка ложно срабатывает на целом дампе
+HAS_LOGS="$(zcat "$FILE" | grep -cE '^CREATE TABLE "?public"?\."?work_logs"?')" || HAS_LOGS=0
+if [ "${HAS_LOGS:-0}" -eq 0 ]; then
+  mv -f "$FILE" "$FILE.rejected"
+  fail "в дампе нет таблицы work_logs — файл переименован в .rejected"
+fi
+
+HAS_SETTINGS="$(zcat "$FILE" | grep -cE '^CREATE TABLE "?public"?\."?settings"?')" || HAS_SETTINGS=0
+if [ "${HAS_SETTINGS:-0}" -eq 0 ]; then
+  mv -f "$FILE" "$FILE.rejected"
+  fail "в дампе нет таблицы settings — файл переименован в .rejected"
+fi
 
 sha256sum "$FILE" > "$FILE.sha256"
 
