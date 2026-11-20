@@ -47,9 +47,15 @@ const filterOptions = [
 const filterLabel = computed(() => filterOptions.find((o) => o.m === reportMinMinutes.value)?.label ?? 'Все')
 
 // записи, прошедшие только порог по минутам (по ним строится график)
+const reportPeriodLogs = computed(() => {
+  const period = reportPeriod.value
+  if (!period) return workLogs.value
+  return workLogs.value.filter((log: any) => log.date >= period.start && log.date <= period.end)
+})
+
 const thresholdLogs = computed(() => {
-  if (!reportMinMinutes.value) return workLogs.value
-  return workLogs.value.filter((log: any) => (log.overtime_minutes ?? 0) > reportMinMinutes.value)
+  if (!reportMinMinutes.value) return reportPeriodLogs.value
+  return reportPeriodLogs.value.filter((log: any) => (log.overtime_minutes ?? 0) > reportMinMinutes.value)
 })
 
 const plural = (n: number, one: string, few: string, many: string) => {
@@ -252,6 +258,14 @@ const rowStyle = (minutes: number) => {
 const changesOpen = ref(false)
 const changelog = [
   {
+    version: 'v1.4.2',
+    date: '19 ноября 2026',
+    items: [
+      'Исправлено: после сохранения комментария в отчёте пропадал выбранный период — показывались все записи из базы',
+      'Отчёт всегда перечитывает записи строго за свой период, в том числе после сохранения и удаления',
+    ],
+  },
+  {
     version: 'v1.4.1',
     date: '18 ноября 2026',
     items: [
@@ -315,9 +329,9 @@ const changelog = [
   },
 ]
 
-const version = 'v1.4.1'
+const version = 'v1.4.2'
 // дата выпуска версии — меняется вручную при выпуске, а не каждый день
-const releaseDate = '18 ноября 2026'
+const releaseDate = '19 ноября 2026'
 const brandIcon = `${import.meta.env.BASE_URL}icon.svg`
 
 const saveLoading = ref(false)
@@ -667,6 +681,38 @@ if (typeof window !== 'undefined') {
   })
 }
 
+// период, за который открыт отчёт: по нему всегда фильтруются строки
+const reportPeriod = ref<{ start: string; end: string } | null>(null)
+
+// записи только за период отчёта (одна точка загрузки)
+const loadReportRows = async (start: string, end: string) => {
+  const { data: { session } } = await supabase.auth.getSession()
+  const uid = session?.user?.id ?? authStore.user?.id
+  const { data, error } = await supabase
+    .from('work_logs')
+    .select('*')
+    .eq('user_id', uid)
+    .gte('date', start)
+    .lte('date', end)
+    .order('date', { ascending: false })
+  if (error) throw error
+  return (data as any[]) ?? []
+}
+
+// перечитать строки отчёта, не выходя из выбранного периода
+const reloadReportRows = async () => {
+  const period = reportPeriod.value
+  if (!period) {
+    await loadWorkLogs()
+    return
+  }
+  try {
+    workLogs.value = await loadReportRows(period.start, period.end)
+  } catch (e: any) {
+    error.value = e.message || 'Не удалось обновить отчёт'
+  }
+}
+
 const openReport = async () => {
   if (!periodStart.value || !periodEnd.value) {
     showToast('Сначала выберите период')
@@ -675,17 +721,8 @@ const openReport = async () => {
   const start = periodStart.value
   const end = periodEnd.value
   try {
-    const { data: { session } } = await supabase.auth.getSession()
-    const uid = session?.user?.id ?? authStore.user?.id
-    const { data, error } = await supabase
-      .from('work_logs')
-      .select('*')
-      .eq('user_id', uid)
-      .gte('date', start)
-      .lte('date', end)
-      .order('date', { ascending: false })
-    if (error) throw error
-    workLogs.value = (data as any[]) ?? []
+    reportPeriod.value = { start, end }
+    workLogs.value = await loadReportRows(start, end)
     showToast(
       workLogs.value.length
         ? `Найдено записей: ${workLogs.value.length} за ${formatDateDisplay(start)} — ${formatDateDisplay(end)}`
@@ -705,6 +742,7 @@ const closeReport = () => {
   currentNote.value = ''
   selectedBucketKey.value = null
   exportDialogOpen.value = false
+  reportPeriod.value = null
   showToast('Окно закрыто')
 }
 
@@ -718,7 +756,7 @@ const saveEdit = async () => {
   try {
     editLoading.value = true
     await updateNote(editingId.value, currentNote.value)
-    await loadWorkLogs()
+    await reloadReportRows()
     editingId.value = null
     currentNote.value = ''
     showToast('Комментарий сохранён')
@@ -732,7 +770,7 @@ const saveEdit = async () => {
 const deleteLog = async (log: any) => {
   try {
     await deleteWorkLog(log.id)
-    await loadWorkLogs()
+    await reloadReportRows()
     showToast('Запись удалена')
   } catch (e: any) {
     error.value = e.message || 'Ошибка удаления'
