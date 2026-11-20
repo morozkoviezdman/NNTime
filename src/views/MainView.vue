@@ -47,6 +47,9 @@ const filterOptions = [
 const filterLabel = computed(() => filterOptions.find((o) => o.m === reportMinMinutes.value)?.label ?? 'Все')
 
 // записи, прошедшие только порог по минутам (по ним строится график)
+// период, за который открыт отчёт: по нему всегда фильтруются строки
+const reportPeriod = ref<{ start: string; end: string } | null>(null)
+
 const reportPeriodLogs = computed(() => {
   const period = reportPeriod.value
   if (!period) return workLogs.value
@@ -258,6 +261,13 @@ const rowStyle = (minutes: number) => {
 const changesOpen = ref(false)
 const changelog = [
   {
+    version: 'v1.4.3',
+    date: '20 ноября 2026',
+    items: [
+      'Исправлено: после входа мог открываться пустой белый экран (ошибка порядка инициализации в отчёте)',
+    ],
+  },
+  {
     version: 'v1.4.2',
     date: '19 ноября 2026',
     items: [
@@ -329,9 +339,9 @@ const changelog = [
   },
 ]
 
-const version = 'v1.4.2'
+const version = 'v1.4.3'
 // дата выпуска версии — меняется вручную при выпуске, а не каждый день
-const releaseDate = '19 ноября 2026'
+const releaseDate = '20 ноября 2026'
 const brandIcon = `${import.meta.env.BASE_URL}icon.svg`
 
 const saveLoading = ref(false)
@@ -680,9 +690,6 @@ if (typeof window !== 'undefined') {
     }
   })
 }
-
-// период, за который открыт отчёт: по нему всегда фильтруются строки
-const reportPeriod = ref<{ start: string; end: string } | null>(null)
 
 // записи только за период отчёта (одна точка загрузки)
 const loadReportRows = async (start: string, end: string) => {
