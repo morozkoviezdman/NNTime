@@ -65,6 +65,7 @@ const overtimeBlockEl = ref<HTMLElement | null>(null)
 const deltaText = ref('')
 const deltaNegative = ref(false)
 const deltaZero = ref(false)
+const fxHidden = ref(false)
 const effectBusy = ref(false)
 const soundOn = ref(localStorage.getItem('nntime_sound') !== 'off')
 let audioCtx: AudioContext | null = null
@@ -137,52 +138,103 @@ const fxLayer = () => {
   return layer
 }
 
-const spawnParticles = (x: number, y: number, negative: boolean) => {
+// частицы: разлёт из точки (или с края круга), замирание и «магнитный» возврат
+const burst = (opts: {
+  cx: number
+  cy: number
+  fromRadius: number
+  toRadius: number
+  backRadius: number
+  count: number
+  negative: boolean
+  delay: number
+  duration: number
+  jitter?: number
+}) => {
   const layer = fxLayer()
-  const palette = negative
-    ? ['#f59e0b', '#fbbf24', '#f97316']
-    : ['#2563eb', '#60a5fa', '#93c5fd', '#1d4ed8']
-  const count = 24
-  for (let i = 0; i < count; i += 1) {
+  const palette = opts.negative
+    ? ['#f59e0b', '#fbbf24', '#fb923c', '#f97316']
+    : ['#1d4ed8', '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd']
+
+  for (let i = 0; i < opts.count; i += 1) {
     const el = document.createElement('div')
     el.className = 'fx-particle'
-    el.style.left = `${x}px`
-    el.style.top = `${y}px`
-    el.style.background = palette[i % palette.length]
-    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.4
-    const dist = 60 + Math.random() * 110
-    const dx = Math.cos(angle) * dist
-    const dy = Math.sin(angle) * dist
+    const size = 10 + Math.round(Math.random() * 6)
+    const color = palette[i % palette.length]
+    el.style.width = `${size}px`
+    el.style.height = `${size}px`
+    el.style.left = `${opts.cx}px`
+    el.style.top = `${opts.cy}px`
+    el.style.background = color
+    el.style.boxShadow = `0 0 ${10 + size * 1.8}px ${color}`
+
+    const angle = (Math.PI * 2 * i) / opts.count + (Math.random() - 0.5) * 0.3
+    const out = opts.toRadius * (0.8 + Math.random() * 0.45)
+    const sx = Math.cos(angle) * opts.fromRadius
+    const sy = Math.sin(angle) * opts.fromRadius
+    const ex = Math.cos(angle) * out
+    const ey = Math.sin(angle) * out
+    const bx = Math.cos(angle) * opts.backRadius
+    const by = Math.sin(angle) * opts.backRadius
+    const spin = Math.round((Math.random() - 0.5) * 240)
+
+    layer.appendChild(el)
     el.animate(
       [
-        { transform: 'translate(-50%, -50%) scale(1)', opacity: 1 },
-        {
-          transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0.2)`,
-          opacity: 0,
-        },
+        { transform: `translate(${sx}px, ${sy}px) translate(-50%, -50%) scale(0.45)`, opacity: 0.85, offset: 0 },
+        { transform: `translate(${ex}px, ${ey}px) translate(-50%, -50%) scale(1.15) rotate(${spin * 0.3}deg)`, opacity: 1, offset: 0.2 },
+        { transform: `translate(${ex * 1.03}px, ${ey * 1.03}px) translate(-50%, -50%) scale(1) rotate(${spin * 0.6}deg)`, opacity: 1, offset: 0.44 },
+        { transform: `translate(${bx}px, ${by}px) translate(-50%, -50%) scale(0.6) rotate(${spin}deg)`, opacity: 0.4, offset: 0.88 },
+        { transform: `translate(${bx}px, ${by}px) translate(-50%, -50%) scale(0.25) rotate(${spin}deg)`, opacity: 0, offset: 1 },
       ],
-      { duration: 520 + Math.random() * 220, easing: 'cubic-bezier(.2,.7,.3,1)' },
+      {
+        duration: opts.duration,
+        delay: opts.delay + (opts.jitter ? Math.random() * opts.jitter : 0),
+        easing: 'cubic-bezier(.32, .72, .24, 1)',
+        fill: 'both',
+      },
     )
-    layer.appendChild(el)
   }
-  setTimeout(() => layer.remove(), 1100)
+
+  window.setTimeout(() => layer.remove(), opts.delay + opts.duration + 250)
 }
 
-const spawnRing = (x: number, y: number, negative: boolean) => {
+// бледный контур круга, пока кнопка «растворена»
+const showGhost = (rect: DOMRect) => {
+  const layer = fxLayer()
+  const g = document.createElement('div')
+  g.className = 'fx-ghost'
+  g.style.left = `${rect.left}px`
+  g.style.top = `${rect.top}px`
+  g.style.width = `${rect.width}px`
+  g.style.height = `${rect.height}px`
+  layer.appendChild(g)
+  g.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, fill: 'forwards' })
+  return {
+    fadeOut: () => {
+      g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 220, fill: 'forwards' })
+      window.setTimeout(() => layer.remove(), 280)
+    },
+  }
+}
+
+const spawnRing = (x: number, y: number, radius: number, negative: boolean) => {
   const layer = fxLayer()
   const ring = document.createElement('div')
   ring.className = `fx-ring${negative ? ' fx-ring-minus' : ''}`
   ring.style.left = `${x}px`
   ring.style.top = `${y}px`
+  ring.style.width = `${radius * 2}px`
+  ring.style.height = `${radius * 2}px`
   layer.appendChild(ring)
   ring.animate(
     [
-      { transform: 'translate(-50%, -50%) scale(0.4)', opacity: 0.8 },
-      { transform: 'translate(-50%, -50%) scale(5)', opacity: 0 },
+      { transform: 'translate(-50%, -50%) scale(0.35)', opacity: 0.85 },
+      { transform: 'translate(-50%, -50%) scale(1.35)', opacity: 0 },
     ],
-    { duration: 640, easing: 'cubic-bezier(.2,.8,.2,1)' },
+    { duration: 620, easing: 'cubic-bezier(.2, .8, .2, 1)' },
   )
-  setTimeout(() => layer.remove(), 700)
+  window.setTimeout(() => layer.remove(), 760)
 }
 
 // «таблетка» с прибавкой летит по дуге от кнопки к итогу
@@ -207,10 +259,12 @@ const flyPill = (text: string, from: DOMRect, to: DOMRect, negative: boolean, du
     const u = 1 - t
     const x = u * u * sx + 2 * u * t * cx + t * t * ex
     const y = u * u * sy + 2 * u * t * cy + t * t * ey
-    const scale = i === 0 ? 0.55 : t < 1 ? 1 + 0.18 * Math.sin(Math.PI * t) : 0.8
+    const scale = i === 0 ? 0.55 : 1 + 0.18 * Math.sin(Math.PI * t)
+    // к моменту прилёта «таблетка» растворяется, чтобы не закрывать число
+    const opacity = t > 0.86 ? Math.max(0, 1 - (t - 0.86) / 0.14) : 1
     frames.push({
       transform: `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${scale})`,
-      opacity: t === 1 ? 0.85 : 1,
+      opacity,
       offset: t,
     })
   }
@@ -241,14 +295,46 @@ const showDelta = (delta: number) => {
   }, 2400)
 }
 
-// весь эффект: искры → перелёт → удар → прокрутка счётчика
+const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms))
+
+const shakeBlock = () => {
+  const block = overtimeBlockEl.value
+  if (!block) return
+  block.classList.remove('impact')
+  void block.offsetWidth
+  block.classList.add('impact')
+  window.setTimeout(() => block.classList.remove('impact'), 520)
+}
+
+const cancelButtonAnimations = (btn: HTMLElement | null | undefined) => {
+  if (!btn) return
+  try {
+    btn.getAnimations().forEach((a) => a.cancel())
+  } catch {
+    /* старых анимаций может не быть */
+  }
+}
+
+const revealButton = (btn: HTMLElement) => {
+  cancelButtonAnimations(btn)
+  btn.animate(
+    [
+      { transform: 'scale(0.62)', opacity: 0 },
+      { transform: 'scale(1.06)', opacity: 1, offset: 0.7 },
+      { transform: 'scale(1)', opacity: 1 },
+    ],
+    { duration: 320, easing: 'cubic-bezier(.2, .9, .3, 1)' },
+  )
+}
+
+// весь эффект: «простая» — искры с края кнопки; «полная» — кнопка растворяется и собирается
 const playRecordEffect = async (delta: number, fromTotal: number, toTotal: number) => {
   if (effectBusy.value) return
   effectBusy.value = true
   const negative = delta < 0
-  // настройка «Полная анимация» перекрывает системное «уменьшение движения»
   const forceAnimation = localStorage.getItem('nntime_animation') === 'full'
   const reduceMotion = !forceAnimation && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const variant: 'full' | 'simple' = forceAnimation ? 'full' : 'simple'
 
   if (reduceMotion && !sessionStorage.getItem('nntime_motion_hint')) {
     sessionStorage.setItem('nntime_motion_hint', '1')
@@ -256,51 +342,114 @@ const playRecordEffect = async (delta: number, fromTotal: number, toTotal: numbe
   }
 
   playTick()
-  showDelta(delta)
 
-  const btnRect = recordBtnEl.value?.getBoundingClientRect()
+  const btn = recordBtnEl.value
+  const btnRect = btn?.getBoundingClientRect()
   const valueRect = overtimeValueEl.value?.getBoundingClientRect()
 
-  // страховка: даже если анимация где-то застрянет, точное значение появится через 2,4 с,
-  // а блокировка следующего запуска снимется не позже чем через 4 с
-  const guard = window.setTimeout(() => setShownTotal(toTotal), 2400)
+  const guard = window.setTimeout(() => setShownTotal(toTotal), 2600)
   const watchdog = window.setTimeout(() => {
     effectBusy.value = false
-  }, 4000)
+    fxHidden.value = false
+  }, 3200)
 
   try {
-    if (!btnRect || !valueRect || reduceMotion) {
-      await tweenTotal(fromTotal, toTotal, 420)
+    if (!btn || !btnRect || !valueRect || reduceMotion) {
+      showDelta(delta)
+      await tweenTotal(fromTotal, toTotal, 460)
       return
     }
 
     setShownTotal(fromTotal)
-    spawnParticles(btnRect.left + btnRect.width / 2, btnRect.top + btnRect.height / 2, negative)
+    window.setTimeout(() => showDelta(delta), 720)
+    const cx = btnRect.left + btnRect.width / 2
+    const cy = btnRect.top + btnRect.height / 2
+    const radius = btnRect.width / 2
+    const valueCx = valueRect.left + valueRect.width / 2
+    const valueCy = valueRect.top + valueRect.height / 2
 
-    // перелёт не блокирует счётчик: если анимация не отыграет, число всё равно доедет
-    window.setTimeout(() => {
-      void flyPill(fmtDelta(delta), btnRect, valueRect, negative, 650)
-    }, 140)
+    if (variant === 'full') {
+      // А: кнопка сжимается в точку, на её месте остаётся бледный контур
+      const ghost = showGhost(btnRect)
+      btn.animate(
+        [
+          { transform: 'scale(1)', opacity: 1 },
+          { transform: 'scale(0.06)', opacity: 0 },
+        ],
+        { duration: 170, easing: 'cubic-bezier(.4, 0, .7, 1)', fill: 'forwards' },
+      )
+      await wait(170)
+      fxHidden.value = true
 
-    await new Promise((r) => window.setTimeout(r, 640))
+      burst({
+        cx,
+        cy,
+        fromRadius: 0,
+        toRadius: Math.max(230, radius * 1.7),
+        backRadius: radius - 12,
+        count: 32,
+        negative,
+        delay: 0,
+        duration: 900,
+        jitter: 90,
+      })
 
-    spawnRing(valueRect.left + valueRect.width / 2, valueRect.top + valueRect.height / 2, negative)
-    const block = overtimeBlockEl.value
-    if (block) {
-      block.classList.remove('impact')
-      void block.offsetWidth
-      block.classList.add('impact')
-      window.setTimeout(() => block.classList.remove('impact'), 520)
+      window.setTimeout(() => {
+        void flyPill(fmtDelta(delta), btnRect, valueRect, negative, 650)
+      }, 230)
+
+      await wait(700)
+      spawnRing(cx, cy, radius, negative)
+      ghost.fadeOut()
+      fxHidden.value = false
+      revealButton(btn)
+      shakeBlock()
+      spawnRing(valueCx, valueCy, 24, negative)
+      await tweenTotal(fromTotal, toTotal, 520)
+    } else {
+      // Б: кнопка на месте, искры срываются с её края
+      btn.animate(
+        [
+          { transform: 'scale(1)' },
+          { transform: 'scale(0.94)', offset: 0.35 },
+          { transform: 'scale(1)' },
+        ],
+        { duration: 460, easing: 'ease-in-out' },
+      )
+
+      burst({
+        cx,
+        cy,
+        fromRadius: radius - 10,
+        toRadius: radius + 120,
+        backRadius: radius - 14,
+        count: 32,
+        negative,
+        delay: 70,
+        duration: 900,
+      })
+
+      window.setTimeout(() => {
+        void flyPill(fmtDelta(delta), btnRect, valueRect, negative, 650)
+      }, 220)
+
+      await wait(880)
+      shakeBlock()
+      spawnRing(valueCx, valueCy, 24, negative)
+      await tweenTotal(fromTotal, toTotal, 520)
     }
-    await tweenTotal(fromTotal, toTotal, 600)
+  } catch (err) {
+    console.error('[fx] ошибка анимации:', err)
   } finally {
     window.clearTimeout(guard)
     window.clearTimeout(watchdog)
+    // снимаем возможный «залипший» forwards-кадр, из-за которого кнопка оставалась невидимой
+    cancelButtonAnimations(recordBtnEl.value)
+    fxHidden.value = false
     setShownTotal(toTotal)
     effectBusy.value = false
   }
 }
-
 
 const reportPeriodLogs = computed(() => {
   const period = reportPeriod.value
@@ -513,6 +662,16 @@ const rowStyle = (minutes: number) => {
 const changesOpen = ref(false)
 const changelog = [
   {
+    version: 'v1.7.0',
+    date: '26 ноября 2026',
+    items: [
+      'Полная анимация: кнопка растворяется, на её месте остаётся бледный контур, частицы разлетаются, замирают и «магнитом» собираются обратно в кнопку',
+      'Простая анимация: кнопка остаётся на месте, искры срываются с её края, замирают и возвращаются',
+      'Частицы крупнее (10–16 px) и ярче, со свечением',
+      'Повторное нажатие блокируется на время эффекта — около 1,6 секунды',
+    ],
+  },
+  {
     version: 'v1.6.2',
     date: '26 ноября 2026',
     items: [
@@ -631,7 +790,7 @@ const changelog = [
   },
 ]
 
-const version = 'v1.6.2'
+const version = 'v1.7.0'
 // дата выпуска версии — меняется вручную при выпуске, а не каждый день
 const releaseDate = '26 ноября 2026'
 const brandIcon = `${import.meta.env.BASE_URL}icon.svg`
@@ -1106,7 +1265,20 @@ onMounted(async () => {
 
     <!-- Fix button (circular) -->
     <div class="record-center">
-      <button ref="recordBtnEl" class="main-record-btn" @click="emitRecord" :disabled="recordLoading" :class="[classNameRecord, { 'main-record-btn-green': recordButtonText === 'Обновлено' }]">
+      <button
+        ref="recordBtnEl"
+        class="main-record-btn"
+        @click="emitRecord"
+        :disabled="recordLoading"
+        :class="[
+          classNameRecord,
+          {
+            'main-record-btn-green': recordButtonText === 'Обновлено',
+            'main-record-btn-hidden': fxHidden,
+            'main-record-btn-busy': effectBusy,
+          },
+        ]"
+      >
         <span>{{ recordButtonText }}</span>
       </button>
     </div>
@@ -2049,6 +2221,15 @@ onMounted(async () => {
 .main-record-btn:hover {
   background: #2563eb;
   color: #ffffff;
+}
+
+.main-record-btn-hidden {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
+.main-record-btn-busy {
+  pointer-events: none;
 }
 
 .main-record-btn:disabled {

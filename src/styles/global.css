@@ -100,3 +100,11 @@ input {
 .fx-ring-minus {
   border-color: rgba(245, 158, 11, 0.6);
 }
+
+.fx-ghost {
+  position: absolute;
+  border: 2px solid #c7d7fb;
+  border-radius: 50%;
+  background: rgba(37, 99, 235, 0.035);
+  will-change: opacity;
+}
