@@ -172,7 +172,7 @@ onMounted(loadSettings)
         <div class="toggle-row">
           <div class="toggle-text">
             <span class="toggle-title">Полная анимация</span>
-            <span class="toggle-hint">Искры и перелёт работают даже при включённом «уменьшении движения» в системе</span>
+            <span class="toggle-hint">Принудительное включение анимации без проверки настройки устройства</span>
           </div>
           <button
             class="switch"
