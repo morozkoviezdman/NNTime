@@ -513,6 +513,14 @@ const rowStyle = (minutes: number) => {
 const changesOpen = ref(false)
 const changelog = [
   {
+    version: 'v1.6.2',
+    date: '26 ноября 2026',
+    items: [
+      'Исправлено: частицы и «таблетка» с прибавкой были невидимы — стили эффекта не применялись к элементам, созданным скриптом',
+      'Анимация теперь видна при каждом нажатии и на телефоне, и в браузере на компьютере',
+    ],
+  },
+  {
     version: 'v1.6.1',
     date: '26 ноября 2026',
     items: [
@@ -623,7 +631,7 @@ const changelog = [
   },
 ]
 
-const version = 'v1.6.1'
+const version = 'v1.6.2'
 // дата выпуска версии — меняется вручную при выпуске, а не каждый день
 const releaseDate = '26 ноября 2026'
 const brandIcon = `${import.meta.env.BASE_URL}icon.svg`
@@ -1656,56 +1664,6 @@ onMounted(async () => {
   22% { transform: translateY(0) scale(1); }
   80% { opacity: 1; transform: translateY(-2px) scale(1); }
   100% { opacity: 0; transform: translateY(-10px) scale(0.96); }
-}
-
-/* слой эффектов поверх страницы */
-.fx-layer {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 3000;
-  overflow: hidden;
-}
-
-.fx-particle {
-  position: absolute;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  will-change: transform, opacity;
-}
-
-.fx-pill {
-  position: absolute;
-  left: 0;
-  top: 0;
-  padding: 8px 16px;
-  border-radius: 999px;
-  background: #2563eb;
-  color: #ffffff;
-  font-size: 16px;
-  font-weight: 800;
-  white-space: nowrap;
-  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.35);
-  will-change: transform, opacity;
-}
-
-.fx-pill-minus {
-  background: #f59e0b;
-  box-shadow: 0 10px 24px rgba(245, 158, 11, 0.35);
-}
-
-.fx-ring {
-  position: absolute;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 2px solid rgba(37, 99, 235, 0.6);
-  will-change: transform, opacity;
-}
-
-.fx-ring-minus {
-  border-color: rgba(245, 158, 11, 0.6);
 }
 
 @media (prefers-reduced-motion: reduce) {
