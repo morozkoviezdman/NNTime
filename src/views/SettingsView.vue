@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { getSettings, updateSettings } from '@/utils/db'
+import { FX_DEFAULT, loadFxTune, saveFxTune, resetFxTune, type FxTune } from '@/utils/fxTune'
 
 const router = useRouter()
 
@@ -19,6 +20,16 @@ const askNote = ref(false)
 
 // настройки, которые живут на устройстве
 const soundOn = ref(localStorage.getItem('nntime_sound') !== 'off')
+
+// ВРЕМЕННО: подбор параметров анимации
+const tune = ref<FxTune>(loadFxTune())
+const applyTune = () => {
+  saveFxTune({ ...tune.value })
+}
+const resetTuning = () => {
+  tune.value = resetFxTune()
+  applyTune()
+}
 // по умолчанию полная анимация включена
 const fullAnimation = ref(localStorage.getItem('nntime_animation') !== 'auto')
 
@@ -201,6 +212,68 @@ onMounted(loadSettings)
             @click="toggleSound"
             :title="soundOn ? 'Выключить звук' : 'Включить звук'"
           ><span class="knob"></span></button>
+        </div>
+      </section>
+
+      <section class="card tune-card">
+        <div class="card-title">Отладка анимации · временно</div>
+        <div class="hint tune-hint">
+          Ползунки для подбора. Подберите значения, скажите — перенесу в код и удалю этот блок.
+        </div>
+
+        <div class="tune-row">
+          <div class="tune-label">
+            <span>Скорость</span>
+            <b>{{ tune.speed.toFixed(2) }}×</b>
+          </div>
+          <input
+            type="range"
+            min="0.4"
+            max="3"
+            step="0.05"
+            v-model.number="tune.speed"
+            @input="applyTune"
+            title="Множитель длительности: меньше — быстрее"
+          />
+          <div class="tune-scale"><span>быстрее</span><span>медленнее</span></div>
+        </div>
+
+        <div class="tune-row">
+          <div class="tune-label">
+            <span>Размер частиц</span>
+            <b>{{ tune.size }} px</b>
+          </div>
+          <input
+            type="range"
+            min="4"
+            max="28"
+            step="1"
+            v-model.number="tune.size"
+            @input="applyTune"
+            title="Базовый размер частицы"
+          />
+        </div>
+
+        <div class="tune-row">
+          <div class="tune-label">
+            <span>Количество частиц</span>
+            <b>{{ tune.count }}</b>
+          </div>
+          <input
+            type="range"
+            min="6"
+            max="80"
+            step="1"
+            v-model.number="tune.count"
+            @input="applyTune"
+            title="Сколько частиц вылетает"
+          />
+        </div>
+
+        <div class="tune-actions">
+          <button class="tune-reset" @click="resetTuning" title="Вернуть значения по умолчанию">
+            Сбросить к {{ FX_DEFAULT.count }} частиц · {{ FX_DEFAULT.size }} px · {{ FX_DEFAULT.speed }}×
+          </button>
         </div>
       </section>
 
@@ -429,6 +502,68 @@ input:focus {
   line-height: 1.5;
   color: #9aa3b2;
   text-align: center;
+}
+
+.tune-card {
+  border-style: dashed;
+  border-color: #c7d7fb;
+  background: #fbfcff;
+}
+
+.tune-hint {
+  margin-top: -4px;
+  margin-bottom: 14px;
+}
+
+.tune-row {
+  margin-bottom: 14px;
+}
+
+.tune-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13.5px;
+  color: #4b5563;
+  margin-bottom: 6px;
+}
+
+.tune-label b {
+  color: #2563eb;
+  font-variant-numeric: tabular-nums;
+}
+
+.tune-row input[type='range'] {
+  width: 100%;
+  accent-color: #2563eb;
+}
+
+.tune-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #9aa3b2;
+  margin-top: 2px;
+}
+
+.tune-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.tune-reset {
+  border: 1px solid #dfe4ee;
+  background: #ffffff;
+  color: #6b7280;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tune-reset:hover {
+  color: #2563eb;
+  border-color: #c7d7fb;
 }
 
 .error-box {

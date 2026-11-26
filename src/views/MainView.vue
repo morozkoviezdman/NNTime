@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { getSettings, getPeriodOvertime, updateSettings, getWorkLogs, getWorkLogByDate, deleteWorkLog, updateNote, recordWorkSession, updateWorkLog } from '@/utils/db'
 import { buildReportCsv, reportFileName } from '@/utils/export'
+import { loadFxTune } from '@/utils/fxTune'
 import { supabase } from '@/supabaseClient'
 
 const authStore = useAuthStore()
@@ -150,6 +151,7 @@ const burst = (opts: {
   delay: number
   duration: number
   jitter?: number
+  sizeBase?: number
 }) => {
   const layer = fxLayer()
   const palette = opts.negative
@@ -159,7 +161,8 @@ const burst = (opts: {
   for (let i = 0; i < opts.count; i += 1) {
     const el = document.createElement('div')
     el.className = 'fx-particle'
-    const size = 10 + Math.round(Math.random() * 6)
+    const base = opts.sizeBase ?? 12
+    const size = Math.round(base * (0.72 + Math.random() * 0.5))
     const color = palette[i % palette.length]
     el.style.width = `${size}px`
     el.style.height = `${size}px`
@@ -298,7 +301,7 @@ const cancelButtonAnimations = (btn: HTMLElement | null | undefined) => {
   }
 }
 
-const revealButton = (btn: HTMLElement) => {
+const revealButton = (btn: HTMLElement, duration = 320) => {
   cancelButtonAnimations(btn)
   btn.animate(
     [
@@ -306,7 +309,7 @@ const revealButton = (btn: HTMLElement) => {
       { transform: 'scale(1.06)', opacity: 1, offset: 0.7 },
       { transform: 'scale(1)', opacity: 1 },
     ],
-    { duration: 320, easing: 'cubic-bezier(.2, .9, .3, 1)' },
+    { duration, easing: 'cubic-bezier(.2, .9, .3, 1)' },
   )
 }
 
@@ -325,6 +328,10 @@ const playRecordEffect = async (delta: number, fromTotal: number, toTotal: numbe
     sessionStorage.setItem('nntime_motion_hint', '1')
     showToast('Анимация сокращена настройкой устройства — включите «Полную анимацию» в настройках')
   }
+
+  // ВРЕМЕННО: параметры подбираются ползунками на экране настроек
+  const tune = loadFxTune()
+  const ms = (v: number) => Math.max(80, Math.round(v * tune.speed))
 
   playTick()
 
@@ -360,9 +367,9 @@ const playRecordEffect = async (delta: number, fromTotal: number, toTotal: numbe
           { transform: 'scale(1)', opacity: 1 },
           { transform: 'scale(0.06)', opacity: 0 },
         ],
-        { duration: 220, easing: 'cubic-bezier(.4, 0, .7, 1)', fill: 'forwards' },
+        { duration: ms(220), easing: 'cubic-bezier(.4, 0, .7, 1)', fill: 'forwards' },
       )
-      await wait(170)
+      await wait(ms(220))
       fxHidden.value = true
 
       burst({
@@ -371,24 +378,25 @@ const playRecordEffect = async (delta: number, fromTotal: number, toTotal: numbe
         fromRadius: 0,
         toRadius: Math.max(230, radius * 1.7),
         backRadius: radius - 12,
-        count: 32,
+        count: tune.count,
         negative,
         delay: 0,
-        duration: 900,
-        jitter: 90,
+        duration: ms(900),
+        jitter: ms(90),
+        sizeBase: tune.size,
       })
 
       window.setTimeout(() => {
-        void flyPill(fmtDelta(delta), btnRect, valueRect, negative, 650)
-      }, 230)
+        void flyPill(fmtDelta(delta), btnRect, valueRect, negative, ms(650))
+      }, ms(230))
 
-      await wait(950)
+      await wait(ms(950))
       spawnRing(cx, cy, radius, negative)
       fxHidden.value = false
-      revealButton(btn)
+      revealButton(btn, ms(320))
       shakeBlock()
       spawnRing(valueCx, valueCy, 24, negative)
-      await tweenTotal(fromTotal, toTotal, 700)
+      await tweenTotal(fromTotal, toTotal, ms(700))
     } else {
       // Б: кнопка на месте, искры срываются с её края
       btn.animate(
@@ -406,20 +414,21 @@ const playRecordEffect = async (delta: number, fromTotal: number, toTotal: numbe
         fromRadius: radius - 10,
         toRadius: radius + 120,
         backRadius: radius - 14,
-        count: 32,
+        count: tune.count,
         negative,
-        delay: 70,
-        duration: 900,
+        delay: ms(70),
+        duration: ms(900),
+        sizeBase: tune.size,
       })
 
       window.setTimeout(() => {
-        void flyPill(fmtDelta(delta), btnRect, valueRect, negative, 650)
-      }, 220)
+        void flyPill(fmtDelta(delta), btnRect, valueRect, negative, ms(650))
+      }, ms(220))
 
-      await wait(1150)
+      await wait(ms(1150))
       shakeBlock()
       spawnRing(valueCx, valueCy, 24, negative)
-      await tweenTotal(fromTotal, toTotal, 700)
+      await tweenTotal(fromTotal, toTotal, ms(700))
     }
   } catch (err) {
     console.error('[fx] ошибка анимации:', err)
