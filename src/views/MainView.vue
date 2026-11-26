@@ -50,6 +50,223 @@ const filterLabel = computed(() => filterOptions.find((o) => o.m === reportMinMi
 // период, за который открыт отчёт: по нему всегда фильтруются строки
 const reportPeriod = ref<{ start: string; end: string } | null>(null)
 
+// ── анимация фиксации ─────────────────────────────
+const recordBtnEl = ref<HTMLElement | null>(null)
+const overtimeValueEl = ref<HTMLElement | null>(null)
+const overtimeBlockEl = ref<HTMLElement | null>(null)
+const deltaText = ref('')
+const deltaNegative = ref(false)
+const effectBusy = ref(false)
+const soundOn = ref(localStorage.getItem('nntime_sound') !== 'off')
+const toggleSound = () => {
+  soundOn.value = !soundOn.value
+  localStorage.setItem('nntime_sound', soundOn.value ? 'on' : 'off')
+  showToast(soundOn.value ? 'Звук включён' : 'Звук отключён')
+}
+
+let audioCtx: AudioContext | null = null
+const playTick = () => {
+  if (!soundOn.value) return
+  try {
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext
+    if (!Ctx) return
+    audioCtx = audioCtx ?? new Ctx()
+    const ctx = audioCtx
+    if (ctx.state === 'suspended') void ctx.resume()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'triangle'
+    osc.frequency.setValueAtTime(760, ctx.currentTime)
+    osc.frequency.exponentialRampToValueAtTime(1180, ctx.currentTime + 0.05)
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.008)
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.13)
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start()
+    osc.stop(ctx.currentTime + 0.15)
+  } catch {
+    /* звук не критичен */
+  }
+}
+
+const fmtDelta = (minutes: number) => {
+  const abs = Math.abs(minutes)
+  const h = Math.floor(abs / 60)
+  const m = abs % 60
+  const sign = minutes < 0 ? '−' : '+'
+  return `${sign}${h}:${String(m).padStart(2, '0')}`
+}
+
+const setShownTotal = (mins: number) => {
+  totalMinutes.value = mins
+  totalHours.value = Math.floor(mins / 60)
+  totalMinLeft.value = mins % 60
+}
+
+const tweenTotal = (from: number, to: number, duration = 520) =>
+  new Promise<void>((resolve) => {
+    const start = performance.now()
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / duration)
+      const eased = 1 - Math.pow(1 - t, 3)
+      setShownTotal(Math.round(from + (to - from) * eased))
+      if (t < 1) requestAnimationFrame(step)
+      else {
+        setShownTotal(to)
+        resolve()
+      }
+    }
+    requestAnimationFrame(step)
+  })
+
+const fxLayer = () => {
+  const layer = document.createElement('div')
+  layer.className = 'fx-layer'
+  document.body.appendChild(layer)
+  return layer
+}
+
+const spawnParticles = (x: number, y: number, negative: boolean) => {
+  const layer = fxLayer()
+  const palette = negative
+    ? ['#f59e0b', '#fbbf24', '#f97316']
+    : ['#2563eb', '#60a5fa', '#93c5fd', '#1d4ed8']
+  const count = 16
+  for (let i = 0; i < count; i += 1) {
+    const el = document.createElement('div')
+    el.className = 'fx-particle'
+    el.style.left = `${x}px`
+    el.style.top = `${y}px`
+    el.style.background = palette[i % palette.length]
+    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.4
+    const dist = 40 + Math.random() * 70
+    const dx = Math.cos(angle) * dist
+    const dy = Math.sin(angle) * dist
+    el.animate(
+      [
+        { transform: 'translate(-50%, -50%) scale(1)', opacity: 1 },
+        {
+          transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0.2)`,
+          opacity: 0,
+        },
+      ],
+      { duration: 420 + Math.random() * 160, easing: 'cubic-bezier(.2,.7,.3,1)' },
+    )
+    layer.appendChild(el)
+  }
+  setTimeout(() => layer.remove(), 1000)
+}
+
+const spawnRing = (x: number, y: number, negative: boolean) => {
+  const layer = fxLayer()
+  const ring = document.createElement('div')
+  ring.className = `fx-ring${negative ? ' fx-ring-minus' : ''}`
+  ring.style.left = `${x}px`
+  ring.style.top = `${y}px`
+  layer.appendChild(ring)
+  ring.animate(
+    [
+      { transform: 'translate(-50%, -50%) scale(0.4)', opacity: 0.75 },
+      { transform: 'translate(-50%, -50%) scale(4.2)', opacity: 0 },
+    ],
+    { duration: 560, easing: 'cubic-bezier(.2,.8,.2,1)' },
+  )
+  setTimeout(() => layer.remove(), 700)
+}
+
+// «таблетка» с прибавкой летит по дуге от кнопки к итогу
+const flyPill = (text: string, from: DOMRect, to: DOMRect, negative: boolean, duration = 520) => {
+  const layer = fxLayer()
+  const pill = document.createElement('div')
+  pill.className = `fx-pill${negative ? ' fx-pill-minus' : ''}`
+  pill.textContent = text
+  layer.appendChild(pill)
+
+  const sx = from.left + from.width / 2
+  const sy = from.top + from.height / 2
+  const ex = to.left + to.width / 2
+  const ey = to.top + to.height / 2
+  const cx = (sx + ex) / 2 + 70
+  const cy = Math.min(sy, ey) - 90
+
+  const frames: Keyframe[] = []
+  const steps = 14
+  for (let i = 0; i <= steps; i += 1) {
+    const t = i / steps
+    const u = 1 - t
+    const x = u * u * sx + 2 * u * t * cx + t * t * ex
+    const y = u * u * sy + 2 * u * t * cy + t * t * ey
+    const scale = i === 0 ? 0.55 : t < 1 ? 1 + 0.18 * Math.sin(Math.PI * t) : 0.8
+    frames.push({
+      transform: `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${scale})`,
+      opacity: t === 1 ? 0.85 : 1,
+      offset: t,
+    })
+  }
+
+  const anim = pill.animate(frames, {
+    duration,
+    easing: 'cubic-bezier(.45, .05, .55, .95)',
+    fill: 'forwards',
+  })
+  return new Promise<void>((resolve) => {
+    anim.addEventListener('finish', () => {
+      pill.remove()
+      layer.remove()
+      resolve()
+    })
+  })
+}
+
+const showDelta = (delta: number) => {
+  deltaText.value = fmtDelta(delta)
+  deltaNegative.value = delta < 0
+  window.setTimeout(() => {
+    deltaText.value = ''
+  }, 2400)
+}
+
+// весь эффект: искры → перелёт → удар → прокрутка счётчика
+const playRecordEffect = async (delta: number, fromTotal: number, toTotal: number) => {
+  if (effectBusy.value || delta === 0) return
+  effectBusy.value = true
+  const negative = delta < 0
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  playTick()
+  showDelta(delta)
+
+  const btnRect = recordBtnEl.value?.getBoundingClientRect()
+  const valueRect = overtimeValueEl.value?.getBoundingClientRect()
+
+  try {
+    if (!btnRect || !valueRect || reduceMotion) {
+      await tweenTotal(fromTotal, toTotal, 420)
+      return
+    }
+
+    setShownTotal(fromTotal)
+    spawnParticles(btnRect.left + btnRect.width / 2, btnRect.top + btnRect.height / 2, negative)
+
+    await new Promise((r) => setTimeout(r, 130))
+    await flyPill(fmtDelta(delta), btnRect, valueRect, negative)
+
+    spawnRing(valueRect.left + valueRect.width / 2, valueRect.top + valueRect.height / 2, negative)
+    const block = overtimeBlockEl.value
+    if (block) {
+      block.classList.remove('impact')
+      void block.offsetWidth
+      block.classList.add('impact')
+      window.setTimeout(() => block.classList.remove('impact'), 520)
+    }
+    await tweenTotal(fromTotal, toTotal, 520)
+  } finally {
+    effectBusy.value = false
+  }
+}
+
+
 const reportPeriodLogs = computed(() => {
   const period = reportPeriod.value
   if (!period) return workLogs.value
@@ -261,6 +478,16 @@ const rowStyle = (minutes: number) => {
 const changesOpen = ref(false)
 const changelog = [
   {
+    version: 'v1.5.0',
+    date: '20 ноября 2026',
+    items: [
+      'Анимация фиксации: искры из кнопки, «таблетка» с прибавкой летит к итогу, удар, прокрутка числа',
+      'При перезаписи с уменьшением суммы показывается минус другим цветом',
+      'Короткий звук при фиксации — с кнопкой отключения рядом с блоком сверхнормы',
+      'При системной настройке «уменьшить движение» анимации отключаются, остаётся прокрутка числа',
+    ],
+  },
+  {
     version: 'v1.4.3',
     date: '20 ноября 2026',
     items: [
@@ -339,7 +566,7 @@ const changelog = [
   },
 ]
 
-const version = 'v1.4.3'
+const version = 'v1.5.0'
 // дата выпуска версии — меняется вручную при выпуске, а не каждый день
 const releaseDate = '20 ноября 2026'
 const brandIcon = `${import.meta.env.BASE_URL}icon.svg`
@@ -590,6 +817,7 @@ const resetRecordButton = () => {
 
 // Записать/перезаписать запись за дату с комментарием
 const writeRecord = async (date: string, pressTime: Date, overtimeMins: number, existingId: string | null, note: string) => {
+  const beforeTotal = totalMinutes.value
   if (existingId) {
     await updateWorkLog(existingId, date, pressTime, overtimeMins, note)
     console.info('[record] перезаписана запись:', existingId, 'минут:', overtimeMins, 'комментарий:', note)
@@ -605,6 +833,8 @@ const writeRecord = async (date: string, pressTime: Date, overtimeMins: number, 
   }
   await loadPeriodOvertime()
   await loadWorkLogs()
+  const afterTotal = totalMinutes.value
+  void playRecordEffect(afterTotal - beforeTotal, beforeTotal, afterTotal)
 }
 
 const emitRecord = async () => {
@@ -828,9 +1058,30 @@ onMounted(async () => {
     </section>
 
     <!-- Overtime total block -->
-    <section class="overtime-block">
-      <div class="overtime-title">Сверхнормативно отработано за период всего (чч:мм)</div>
-      <div class="overtime-value">{{ totalHours }}:{{ String(totalMinLeft).padStart(2, '0') }}</div>
+    <section class="overtime-block" ref="overtimeBlockEl">
+      <div class="overtime-head">
+        <div class="overtime-title">Сверхнормативно отработано за период всего (чч:мм)</div>
+        <button
+          class="sound-toggle"
+          @click="toggleSound"
+          :title="soundOn ? 'Выключить звук при фиксации' : 'Включить звук при фиксации'"
+        >
+          <svg v-if="soundOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+          </svg>
+          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <line x1="23" y1="9" x2="17" y2="15"/>
+            <line x1="17" y1="9" x2="23" y2="15"/>
+          </svg>
+        </button>
+      </div>
+      <div class="overtime-row">
+        <div class="overtime-value" ref="overtimeValueEl">{{ totalHours }}:{{ String(totalMinLeft).padStart(2, '0') }}</div>
+        <span v-if="deltaText" class="delta-badge" :class="{ 'delta-badge-minus': deltaNegative }">{{ deltaText }}</span>
+      </div>
     </section>
 
     <!-- Period & time settings (one white card) -->
@@ -874,7 +1125,7 @@ onMounted(async () => {
 
     <!-- Fix button (circular) -->
     <div class="record-center">
-      <button class="main-record-btn" @click="emitRecord" :disabled="recordLoading" :class="[classNameRecord, { 'main-record-btn-green': recordButtonText === 'Обновлено' }]">
+      <button ref="recordBtnEl" class="main-record-btn" @click="emitRecord" :disabled="recordLoading" :class="[classNameRecord, { 'main-record-btn-green': recordButtonText === 'Обновлено' }]">
         <span>{{ recordButtonText }}</span>
       </button>
     </div>
@@ -1277,12 +1528,33 @@ onMounted(async () => {
 
 /* ── Overtime total block ─────────────────────────────── */
 .overtime-block {
+  position: relative;
   background: #ffffff;
   border: 1px solid #e5e8ef;
   border-radius: 14px;
   padding: 20px 24px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
   text-align: center;
+}
+
+.overtime-block.impact {
+  animation: overtime-shake 0.48s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+@keyframes overtime-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-2px); }
+  80% { transform: translateX(2px); }
+}
+
+.overtime-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+  position: relative;
 }
 
 .overtime-title {
@@ -1293,13 +1565,118 @@ onMounted(async () => {
   display: block;
 }
 
+.sound-toggle {
+  position: absolute;
+  right: -8px;
+  top: -2px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: #f3f5f9;
+  color: #6b7280;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.sound-toggle:hover {
+  background: #e8ecf4;
+  color: #2563eb;
+}
+
+.overtime-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
 .overtime-value {
   font-size: 42px;
   font-weight: 800;
   color: #2563eb;
-  margin-bottom: 12px;
   display: block;
   text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.delta-badge {
+  font-size: 15px;
+  font-weight: 800;
+  color: #16a34a;
+  white-space: nowrap;
+  animation: delta-pop 2.4s ease forwards;
+}
+
+.delta-badge-minus {
+  color: #ea580c;
+}
+
+@keyframes delta-pop {
+  0% { opacity: 0; transform: translateY(10px) scale(0.8); }
+  12% { opacity: 1; transform: translateY(0) scale(1.12); }
+  22% { transform: translateY(0) scale(1); }
+  80% { opacity: 1; transform: translateY(-2px) scale(1); }
+  100% { opacity: 0; transform: translateY(-10px) scale(0.96); }
+}
+
+/* слой эффектов поверх страницы */
+.fx-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3000;
+  overflow: hidden;
+}
+
+.fx-particle {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  will-change: transform, opacity;
+}
+
+.fx-pill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 6px 13px;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.35);
+  will-change: transform, opacity;
+}
+
+.fx-pill-minus {
+  background: #f59e0b;
+  box-shadow: 0 10px 24px rgba(245, 158, 11, 0.35);
+}
+
+.fx-ring {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(37, 99, 235, 0.6);
+  will-change: transform, opacity;
+}
+
+.fx-ring-minus {
+  border-color: rgba(245, 158, 11, 0.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overtime-block.impact { animation: none; }
+  .delta-badge { animation: none; opacity: 1; }
 }
 
 .overtime-value .value-unit {
@@ -1669,7 +2046,8 @@ onMounted(async () => {
   border-radius: 50%;
   background: #ffffff;
   color: #2563eb;
-  font-size: clamp(20px, 5.2vw, 26px);
+  /* надпись должна влезать в круг: при 26px «Зафиксировать» шире диаметра */
+  font-size: clamp(19px, 5vw, 22px);
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s;
