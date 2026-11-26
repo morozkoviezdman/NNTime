@@ -19,7 +19,8 @@ const askNote = ref(false)
 
 // настройки, которые живут на устройстве
 const soundOn = ref(localStorage.getItem('nntime_sound') !== 'off')
-const fullAnimation = ref(localStorage.getItem('nntime_animation') === 'full')
+// по умолчанию полная анимация включена
+const fullAnimation = ref(localStorage.getItem('nntime_animation') !== 'auto')
 
 const toggleSound = () => {
   soundOn.value = !soundOn.value
@@ -29,6 +30,11 @@ const toggleSound = () => {
 const toggleAnimation = () => {
   fullAnimation.value = !fullAnimation.value
   localStorage.setItem('nntime_animation', fullAnimation.value ? 'full' : 'auto')
+}
+
+// первая установка: полная анимация включена
+if (localStorage.getItem('nntime_animation') === null) {
+  localStorage.setItem('nntime_animation', 'full')
 }
 
 const periodLabel = computed(() => {

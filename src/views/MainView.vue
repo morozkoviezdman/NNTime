@@ -199,25 +199,6 @@ const burst = (opts: {
   window.setTimeout(() => layer.remove(), opts.delay + opts.duration + 250)
 }
 
-// бледный контур круга, пока кнопка «растворена»
-const showGhost = (rect: DOMRect) => {
-  const layer = fxLayer()
-  const g = document.createElement('div')
-  g.className = 'fx-ghost'
-  g.style.left = `${rect.left}px`
-  g.style.top = `${rect.top}px`
-  g.style.width = `${rect.width}px`
-  g.style.height = `${rect.height}px`
-  layer.appendChild(g)
-  g.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, fill: 'forwards' })
-  return {
-    fadeOut: () => {
-      g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 220, fill: 'forwards' })
-      window.setTimeout(() => layer.remove(), 280)
-    },
-  }
-}
-
 const spawnRing = (x: number, y: number, radius: number, negative: boolean) => {
   const layer = fxLayer()
   const ring = document.createElement('div')
@@ -227,14 +208,16 @@ const spawnRing = (x: number, y: number, radius: number, negative: boolean) => {
   ring.style.width = `${radius * 2}px`
   ring.style.height = `${radius * 2}px`
   layer.appendChild(ring)
-  ring.animate(
+  const anim = ring.animate(
     [
       { transform: 'translate(-50%, -50%) scale(0.35)', opacity: 0.85 },
       { transform: 'translate(-50%, -50%) scale(1.35)', opacity: 0 },
     ],
-    { duration: 620, easing: 'cubic-bezier(.2, .8, .2, 1)' },
+    { duration: 620, easing: 'cubic-bezier(.2, .8, .2, 1)', fill: 'forwards' },
   )
-  window.setTimeout(() => layer.remove(), 760)
+  // убираем сразу после завершения: без fill:forwards кольцо «всплывало» обратно
+  anim.addEventListener('finish', () => layer.remove())
+  window.setTimeout(() => layer.remove(), 900)
 }
 
 // «таблетка» с прибавкой летит по дуге от кнопки к итогу
@@ -332,7 +315,9 @@ const playRecordEffect = async (delta: number, fromTotal: number, toTotal: numbe
   if (effectBusy.value) return
   effectBusy.value = true
   const negative = delta < 0
-  const forceAnimation = localStorage.getItem('nntime_animation') === 'full'
+  // по умолчанию полная анимация включена
+  // по умолчанию — полная анимация; «авто» пользователь выставляет сам
+  const forceAnimation = localStorage.getItem('nntime_animation') !== 'auto'
   const reduceMotion = !forceAnimation && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const variant: 'full' | 'simple' = forceAnimation ? 'full' : 'simple'
 
@@ -369,14 +354,13 @@ const playRecordEffect = async (delta: number, fromTotal: number, toTotal: numbe
     const valueCy = valueRect.top + valueRect.height / 2
 
     if (variant === 'full') {
-      // А: кнопка сжимается в точку, на её месте остаётся бледный контур
-      const ghost = showGhost(btnRect)
+      // А: кнопка сжимается в точку и полностью исчезает
       btn.animate(
         [
           { transform: 'scale(1)', opacity: 1 },
           { transform: 'scale(0.06)', opacity: 0 },
         ],
-        { duration: 170, easing: 'cubic-bezier(.4, 0, .7, 1)', fill: 'forwards' },
+        { duration: 220, easing: 'cubic-bezier(.4, 0, .7, 1)', fill: 'forwards' },
       )
       await wait(170)
       fxHidden.value = true
@@ -398,14 +382,13 @@ const playRecordEffect = async (delta: number, fromTotal: number, toTotal: numbe
         void flyPill(fmtDelta(delta), btnRect, valueRect, negative, 650)
       }, 230)
 
-      await wait(700)
+      await wait(950)
       spawnRing(cx, cy, radius, negative)
-      ghost.fadeOut()
       fxHidden.value = false
       revealButton(btn)
       shakeBlock()
       spawnRing(valueCx, valueCy, 24, negative)
-      await tweenTotal(fromTotal, toTotal, 520)
+      await tweenTotal(fromTotal, toTotal, 700)
     } else {
       // Б: кнопка на месте, искры срываются с её края
       btn.animate(
@@ -433,10 +416,10 @@ const playRecordEffect = async (delta: number, fromTotal: number, toTotal: numbe
         void flyPill(fmtDelta(delta), btnRect, valueRect, negative, 650)
       }, 220)
 
-      await wait(880)
+      await wait(1150)
       shakeBlock()
       spawnRing(valueCx, valueCy, 24, negative)
-      await tweenTotal(fromTotal, toTotal, 520)
+      await tweenTotal(fromTotal, toTotal, 700)
     }
   } catch (err) {
     console.error('[fx] ошибка анимации:', err)
@@ -662,6 +645,16 @@ const rowStyle = (minutes: number) => {
 const changesOpen = ref(false)
 const changelog = [
   {
+    version: 'v1.7.1',
+    date: '26 ноября 2026',
+    items: [
+      'В полной анимации кнопка теперь исчезает полностью — бледный контур убран',
+      'Исправлено: после анимации на секунду появлялись два лишних круга',
+      'Анимация стала медленнее и плавнее',
+      '«Полная анимация» включена по умолчанию',
+    ],
+  },
+  {
     version: 'v1.7.0',
     date: '26 ноября 2026',
     items: [
@@ -790,7 +783,7 @@ const changelog = [
   },
 ]
 
-const version = 'v1.7.0'
+const version = 'v1.7.1'
 // дата выпуска версии — меняется вручную при выпуске, а не каждый день
 const releaseDate = '26 ноября 2026'
 const brandIcon = `${import.meta.env.BASE_URL}icon.svg`
