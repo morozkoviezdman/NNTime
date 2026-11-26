@@ -313,134 +313,154 @@ const revealButton = (btn: HTMLElement, duration = 320) => {
   )
 }
 
-// весь эффект: «простая» — искры с края кнопки; «полная» — кнопка растворяется и собирается
-const playRecordEffect = async (delta: number, fromTotal: number, toTotal: number) => {
+// ── эффект разделён на две части ──────────────────────────
+// startRecordFx — запускается сразу по нажатию, не дожидаясь ответа базы
+// finishRecordFx — приходит, когда известно, на сколько изменилась сумма
+let fxStartedAt = 0
+let fxVariant: 'full' | 'simple' | null = null
+
+const fxTiming = () => {
+  const tune = loadFxTune()
+  return { tune, ms: (v: number) => Math.max(80, Math.round(v * tune.speed)) }
+}
+
+const startRecordFx = () => {
   if (effectBusy.value) return
-  effectBusy.value = true
-  const negative = delta < 0
-  // по умолчанию полная анимация включена
-  // по умолчанию — полная анимация; «авто» пользователь выставляет сам
+  const { tune, ms } = fxTiming()
   const forceAnimation = localStorage.getItem('nntime_animation') !== 'auto'
   const reduceMotion = !forceAnimation && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  const variant: 'full' | 'simple' = forceAnimation ? 'full' : 'simple'
 
   if (reduceMotion && !sessionStorage.getItem('nntime_motion_hint')) {
     sessionStorage.setItem('nntime_motion_hint', '1')
     showToast('Анимация сокращена настройкой устройства — включите «Полную анимацию» в настройках')
   }
-
-  // ВРЕМЕННО: параметры подбираются ползунками на экране настроек
-  const tune = loadFxTune()
-  const ms = (v: number) => Math.max(80, Math.round(v * tune.speed))
-
-  playTick()
+  if (reduceMotion) {
+    fxVariant = null
+    return
+  }
 
   const btn = recordBtnEl.value
-  const btnRect = btn?.getBoundingClientRect()
-  const valueRect = overtimeValueEl.value?.getBoundingClientRect()
+  const rect = btn?.getBoundingClientRect()
+  if (!btn || !rect) {
+    fxVariant = null
+    return
+  }
+
+  effectBusy.value = true
+  fxStartedAt = Date.now()
+  playTick()
+
+  const cx = rect.left + rect.width / 2
+  const cy = rect.top + rect.height / 2
+  const radius = rect.width / 2
+
+  if (forceAnimation) {
+    fxVariant = 'full'
+    btn.animate(
+      [
+        { transform: 'scale(1)', opacity: 1 },
+        { transform: 'scale(0.06)', opacity: 0 },
+      ],
+      { duration: ms(220), easing: 'cubic-bezier(.4, 0, .7, 1)', fill: 'forwards' },
+    )
+    window.setTimeout(() => {
+      fxHidden.value = true
+    }, ms(220))
+
+    burst({
+      cx,
+      cy,
+      fromRadius: 0,
+      toRadius: Math.max(230, radius * 1.7),
+      backRadius: radius - 12,
+      count: tune.count,
+      negative: false,
+      delay: ms(220),
+      duration: ms(900),
+      jitter: ms(90),
+      sizeBase: tune.size,
+    })
+  } else {
+    fxVariant = 'simple'
+    btn.animate(
+      [
+        { transform: 'scale(1)' },
+        { transform: 'scale(0.94)', offset: 0.35 },
+        { transform: 'scale(1)' },
+      ],
+      { duration: ms(460), easing: 'ease-in-out' },
+    )
+
+    burst({
+      cx,
+      cy,
+      fromRadius: radius - 10,
+      toRadius: radius + 120,
+      backRadius: radius - 14,
+      count: tune.count,
+      negative: false,
+      delay: 0,
+      duration: ms(900),
+      sizeBase: tune.size,
+    })
+  }
+}
+
+const finishRecordFx = async (delta: number, fromTotal: number, toTotal: number) => {
+  const { ms } = fxTiming()
+  const btn = recordBtnEl.value
+
+  if (!effectBusy.value) {
+    showDelta(delta)
+    await tweenTotal(fromTotal, toTotal, ms(460))
+    return
+  }
 
   const guard = window.setTimeout(() => setShownTotal(toTotal), 2600)
-  const watchdog = window.setTimeout(() => {
-    effectBusy.value = false
-    fxHidden.value = false
-  }, 3200)
-
   try {
-    if (!btn || !btnRect || !valueRect || reduceMotion) {
-      showDelta(delta)
-      await tweenTotal(fromTotal, toTotal, 460)
-      return
-    }
+    // даём частицам разлететься, но не ждём дольше ~0,6 с
+    const minTime = ms(620)
+    const elapsed = Date.now() - fxStartedAt
+    if (elapsed < minTime) await wait(minTime - elapsed)
 
+    showDelta(delta)
     setShownTotal(fromTotal)
-    window.setTimeout(() => showDelta(delta), 720)
-    const cx = btnRect.left + btnRect.width / 2
-    const cy = btnRect.top + btnRect.height / 2
-    const radius = btnRect.width / 2
-    const valueCx = valueRect.left + valueRect.width / 2
-    const valueCy = valueRect.top + valueRect.height / 2
 
-    if (variant === 'full') {
-      // А: кнопка сжимается в точку и полностью исчезает
-      btn.animate(
-        [
-          { transform: 'scale(1)', opacity: 1 },
-          { transform: 'scale(0.06)', opacity: 0 },
-        ],
-        { duration: ms(220), easing: 'cubic-bezier(.4, 0, .7, 1)', fill: 'forwards' },
-      )
-      await wait(ms(220))
-      fxHidden.value = true
+    const btnRect = btn?.getBoundingClientRect()
+    const valueRect = overtimeValueEl.value?.getBoundingClientRect()
+    const negative = delta < 0
 
-      burst({
-        cx,
-        cy,
-        fromRadius: 0,
-        toRadius: Math.max(230, radius * 1.7),
-        backRadius: radius - 12,
-        count: tune.count,
-        negative,
-        delay: 0,
-        duration: ms(900),
-        jitter: ms(90),
-        sizeBase: tune.size,
-      })
-
+    if (btnRect && valueRect) {
+      void flyPill(fmtDelta(delta), btnRect, valueRect, negative, ms(650))
       window.setTimeout(() => {
-        void flyPill(fmtDelta(delta), btnRect, valueRect, negative, ms(650))
-      }, ms(230))
-
-      await wait(ms(950))
-      spawnRing(cx, cy, radius, negative)
-      fxHidden.value = false
-      revealButton(btn, ms(320))
-      shakeBlock()
-      spawnRing(valueCx, valueCy, 24, negative)
-      await tweenTotal(fromTotal, toTotal, ms(700))
-    } else {
-      // Б: кнопка на месте, искры срываются с её края
-      btn.animate(
-        [
-          { transform: 'scale(1)' },
-          { transform: 'scale(0.94)', offset: 0.35 },
-          { transform: 'scale(1)' },
-        ],
-        { duration: 460, easing: 'ease-in-out' },
-      )
-
-      burst({
-        cx,
-        cy,
-        fromRadius: radius - 10,
-        toRadius: radius + 120,
-        backRadius: radius - 14,
-        count: tune.count,
-        negative,
-        delay: ms(70),
-        duration: ms(900),
-        sizeBase: tune.size,
-      })
-
-      window.setTimeout(() => {
-        void flyPill(fmtDelta(delta), btnRect, valueRect, negative, ms(650))
-      }, ms(220))
-
-      await wait(ms(1150))
-      shakeBlock()
-      spawnRing(valueCx, valueCy, 24, negative)
-      await tweenTotal(fromTotal, toTotal, ms(700))
+        spawnRing(valueRect.left + valueRect.width / 2, valueRect.top + valueRect.height / 2, 24, negative)
+        shakeBlock()
+      }, ms(420))
     }
-  } catch (err) {
-    console.error('[fx] ошибка анимации:', err)
+
+    if (fxVariant === 'full') {
+      await wait(ms(330))
+      fxHidden.value = false
+      if (btn) revealButton(btn, ms(320))
+    }
+
+    await tweenTotal(fromTotal, toTotal, ms(600))
   } finally {
     window.clearTimeout(guard)
-    window.clearTimeout(watchdog)
-    // снимаем возможный «залипший» forwards-кадр, из-за которого кнопка оставалась невидимой
-    cancelButtonAnimations(recordBtnEl.value)
+    cancelButtonAnimations(btn)
     fxHidden.value = false
     setShownTotal(toTotal)
     effectBusy.value = false
+    fxVariant = null
   }
+}
+
+// если запись не удалась — вернуть кнопку на место
+const abortRecordFx = () => {
+  cancelButtonAnimations(recordBtnEl.value)
+  fxHidden.value = false
+  effectBusy.value = false
+  fxVariant = null
 }
 
 const reportPeriodLogs = computed(() => {
@@ -807,13 +827,11 @@ const noteDialogOpen = ref(false)
 const noteDraft = ref('')
 const pendingRecord = ref<any>(null)
 const recordLoading = ref(false)
-const recordButtonText = ref('Зафиксировать')
-const recordButtonGreen = ref(false)
-const recordingTimeout = ref<number | null>(null)
+
 const editLoading = ref(false)
 
 // ── Computed ───────────────────────────────────────────
-const classNameRecord = computed(() => (recordButtonText.value === 'Обновлено') ? 'main-record-btn-green' : 'main-record-btn-default')
+
 
 // ── Toast ──────────────────────────────────────────────
 const showToast = (msg: string) => {
@@ -988,22 +1006,6 @@ const loadWorkLogs = async () => {
 }
 
 // ── Actions ────────────────────────────────────────────
-// мгновенный возврат кнопки в исходное состояние (отмена действия)
-const resetRecordButton = () => {
-  if (recordingTimeout.value) clearTimeout(recordingTimeout.value)
-  recordButtonText.value = 'Зафиксировать'
-  recordButtonGreen.value = false
-}
-
-// зелёное «Обновлено» держим 1,4 с — столько длится анимация
-const scheduleRecordReset = () => {
-  if (recordingTimeout.value) clearTimeout(recordingTimeout.value)
-  recordingTimeout.value = window.setTimeout(() => {
-    recordButtonText.value = 'Зафиксировать'
-    recordButtonGreen.value = false
-  }, 1400)
-}
-
 // Записать/перезаписать запись за дату с комментарием
 const writeRecord = async (date: string, pressTime: Date, overtimeMins: number, existingId: string | null, note: string) => {
   const beforeTotal = totalMinutes.value
@@ -1023,15 +1025,13 @@ const writeRecord = async (date: string, pressTime: Date, overtimeMins: number, 
   await loadPeriodOvertime()
   await loadWorkLogs()
   const afterTotal = totalMinutes.value
-  void playRecordEffect(afterTotal - beforeTotal, beforeTotal, afterTotal)
+  void finishRecordFx(afterTotal - beforeTotal, beforeTotal, afterTotal)
 }
 
 const emitRecord = async () => {
   error.value = ''
   try {
     recordLoading.value = true
-    recordButtonText.value = 'Обновлено'
-    recordButtonGreen.value = true
 
     // 1. Проверка текущего времени
     const now = new Date()
@@ -1043,10 +1043,12 @@ const emitRecord = async () => {
         'Текущее время меньше, чем время окончания работы в настройках.\nПереработка не возможна. Произвести запись?'
       )
       if (!confirmed) {
-        resetRecordButton()
         return
       }
     }
+
+    // анимация стартует сразу, не дожидаясь ответа базы
+    startRecordFx()
 
     // 2. Ищем запись за эту дату ПРЯМО В БАЗЕ (список в памяти может быть пустым/устаревшим)
     const todayStr = formatDateForInput(now)
@@ -1071,10 +1073,10 @@ const emitRecord = async () => {
   } catch (e: any) {
     error.value = e.message || 'Ошибка записи'
     showToast(e.message || 'Ошибка записи')
+    abortRecordFx()
   } finally {
     if (!noteDialogOpen.value) {
       recordLoading.value = false
-      scheduleRecordReset()
     }
   }
 }
@@ -1085,11 +1087,12 @@ const closeNoteDialog = async (note: string) => {
   noteDialogOpen.value = false
   pendingRecord.value = null
   if (!pending) {
-    resetRecordButton()
+    abortRecordFx()
     return
   }
   try {
     recordLoading.value = true
+    startRecordFx()
     await writeRecord(pending.date, pending.pressTime, pending.overtimeMins, pending.existingId, note)
   } catch (e: any) {
     error.value = e.message || 'Ошибка записи'
@@ -1097,7 +1100,6 @@ const closeNoteDialog = async (note: string) => {
   } finally {
     recordLoading.value = false
     noteDraft.value = ''
-    scheduleRecordReset()
   }
 }
 
@@ -1272,16 +1274,12 @@ onMounted(async () => {
         class="main-record-btn"
         @click="emitRecord"
         :disabled="recordLoading"
-        :class="[
-          classNameRecord,
-          {
-            'main-record-btn-green': recordButtonText === 'Обновлено',
-            'main-record-btn-hidden': fxHidden,
-            'main-record-btn-busy': effectBusy,
-          },
-        ]"
+        :class="{
+          'main-record-btn-hidden': fxHidden,
+          'main-record-btn-busy': effectBusy,
+        }"
       >
-        <span>{{ recordButtonText }}</span>
+        <span>Зафиксировать</span>
       </button>
     </div>
 

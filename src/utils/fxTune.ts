@@ -7,7 +7,7 @@ export type FxTune = {
   count: number
 }
 
-export const FX_DEFAULT: FxTune = { speed: 1, size: 12, count: 32 }
+export const FX_DEFAULT: FxTune = { speed: 1.3, size: 18, count: 80 }
 
 const KEY = 'nntime_fx_tune'
 

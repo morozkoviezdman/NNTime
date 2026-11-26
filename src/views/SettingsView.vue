@@ -9,7 +9,7 @@ const router = useRouter()
 const loading = ref(true)
 const saving = ref(false)
 const saveText = ref('Сохранить')
-const saveGreen = ref(false)
+
 const error = ref('')
 
 const periodStart = ref('')
@@ -56,12 +56,10 @@ const periodLabel = computed(() => {
 let greenTimer: number | null = null
 const flashSaved = () => {
   saveText.value = 'Сохранено'
-  saveGreen.value = true
   if (greenTimer) window.clearTimeout(greenTimer)
   greenTimer = window.setTimeout(() => {
     saveText.value = 'Сохранить'
-    saveGreen.value = false
-  }, 1400)
+  }, 1200)
 }
 
 const fmtDate = (d: Date) => {
@@ -279,7 +277,6 @@ onMounted(loadSettings)
 
       <button
         class="save-btn"
-        :class="{ 'save-btn-green': saveGreen }"
         @click="save"
         :disabled="saving"
         title="Сохранить настройки в аккаунте"
