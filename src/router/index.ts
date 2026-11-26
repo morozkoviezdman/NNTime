@@ -3,6 +3,7 @@ import { useAuthStore } from '@/stores/auth'
 import LoginView from '@/views/LoginView.vue'
 import MainView from '@/views/MainView.vue'
 import ReportView from '@/views/ReportView.vue'
+import SettingsView from '@/views/SettingsView.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -19,6 +20,11 @@ const routes: RouteRecordRaw[] = [
     path: '/report',
     name: 'report',
     component: ReportView,
+  },
+  {
+    path: '/settings',
+    name: 'settings',
+    component: SettingsView,
   },
 ]
 
@@ -37,7 +43,7 @@ router.beforeEach(async (to, _from, next) => {
   }
 
   // 2. Если переходим на /app и пользователь не авторизован — редирект на /login
-  if (to.name === 'app' && !authStore.isAuthenticated) {
+  if ((to.name === 'app' || to.name === 'settings' || to.name === 'report') && !authStore.isAuthenticated) {
     next({ name: 'login' })
     return
   }

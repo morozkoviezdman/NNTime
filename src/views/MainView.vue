@@ -11,6 +11,14 @@ const router = useRouter()
 
 // ── State ──────────────────────────────────────────────
 const settings = ref<any>(null)
+
+// период, по которому считаются итоги — показываем прямо в блоке сверхнормы
+const periodLabel = computed(() => {
+  const fmt = (s?: string) => (s ? s.split('-').reverse().join('.') : '—')
+  return `${fmt(settings.value?.period_start)} — ${fmt(settings.value?.period_end)}`
+})
+
+const goSettings = () => router.push('/settings')
 const overtimeHours = ref(18)
 const overtimeMinutes = ref(0)
 const today = new Date()
@@ -58,12 +66,6 @@ const deltaText = ref('')
 const deltaNegative = ref(false)
 const effectBusy = ref(false)
 const soundOn = ref(localStorage.getItem('nntime_sound') !== 'off')
-const toggleSound = () => {
-  soundOn.value = !soundOn.value
-  localStorage.setItem('nntime_sound', soundOn.value ? 'on' : 'off')
-  showToast(soundOn.value ? 'Звук включён' : 'Звук отключён')
-}
-
 let audioCtx: AudioContext | null = null
 const playTick = () => {
   if (!soundOn.value) return
@@ -210,13 +212,16 @@ const flyPill = (text: string, from: DOMRect, to: DOMRect, negative: boolean, du
     easing: 'cubic-bezier(.45, .05, .55, .95)',
     fill: 'forwards',
   })
-  return new Promise<void>((resolve) => {
-    anim.addEventListener('finish', () => {
-      pill.remove()
-      layer.remove()
-      resolve()
-    })
-  })
+  // уборка по таймеру, а не по событию finish: так эффект не может «зависнуть»
+  window.setTimeout(() => {
+    try {
+      anim.cancel()
+    } catch {
+      /* уже завершилась */
+    }
+    pill.remove()
+    layer.remove()
+  }, duration + 120)
 }
 
 const showDelta = (delta: number) => {
@@ -232,13 +237,18 @@ const playRecordEffect = async (delta: number, fromTotal: number, toTotal: numbe
   if (effectBusy.value || delta === 0) return
   effectBusy.value = true
   const negative = delta < 0
-  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  // настройка «Полная анимация» перекрывает системное «уменьшение движения»
+  const forceAnimation = localStorage.getItem('nntime_animation') === 'full'
+  const reduceMotion = !forceAnimation && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
   playTick()
   showDelta(delta)
 
   const btnRect = recordBtnEl.value?.getBoundingClientRect()
   const valueRect = overtimeValueEl.value?.getBoundingClientRect()
+
+  // страховка: даже если анимация где-то застрянет, точное значение появится через 2,4 с
+  const guard = window.setTimeout(() => setShownTotal(toTotal), 2400)
 
   try {
     if (!btnRect || !valueRect || reduceMotion) {
@@ -249,8 +259,12 @@ const playRecordEffect = async (delta: number, fromTotal: number, toTotal: numbe
     setShownTotal(fromTotal)
     spawnParticles(btnRect.left + btnRect.width / 2, btnRect.top + btnRect.height / 2, negative)
 
-    await new Promise((r) => setTimeout(r, 130))
-    await flyPill(fmtDelta(delta), btnRect, valueRect, negative)
+    // перелёт не блокирует счётчик: если анимация не отыграет, число всё равно доедет
+    window.setTimeout(() => {
+      void flyPill(fmtDelta(delta), btnRect, valueRect, negative)
+    }, 130)
+
+    await new Promise((r) => window.setTimeout(r, 520))
 
     spawnRing(valueRect.left + valueRect.width / 2, valueRect.top + valueRect.height / 2, negative)
     const block = overtimeBlockEl.value
@@ -262,6 +276,8 @@ const playRecordEffect = async (delta: number, fromTotal: number, toTotal: numbe
     }
     await tweenTotal(fromTotal, toTotal, 520)
   } finally {
+    window.clearTimeout(guard)
+    setShownTotal(toTotal)
     effectBusy.value = false
   }
 }
@@ -571,11 +587,6 @@ const version = 'v1.5.0'
 const releaseDate = '20 ноября 2026'
 const brandIcon = `${import.meta.env.BASE_URL}icon.svg`
 
-const saveLoading = ref(false)
-const saveButtonText = ref('Сохранить')
-const saveButtonGreen = ref(false)
-const saveBusy = ref(false)
-const saveTimer = ref<number | null>(null)
 const error = ref('')
 const toast = ref('')
 const toastVisible = ref(false)
@@ -592,7 +603,6 @@ const recordingTimeout = ref<number | null>(null)
 const editLoading = ref(false)
 
 // ── Computed ───────────────────────────────────────────
-const classNameSave = computed(() => saveButtonGreen.value ? 'save-btn-green' : 'save-btn')
 const classNameRecord = computed(() => (recordButtonText.value === 'Обновлено') ? 'main-record-btn-green' : 'main-record-btn-default')
 
 // ── Toast ──────────────────────────────────────────────
@@ -768,51 +778,20 @@ const loadWorkLogs = async () => {
 }
 
 // ── Actions ────────────────────────────────────────────
-const resetSaveButton = () => {
-  if (saveTimer.value) clearTimeout(saveTimer.value)
-  saveButtonText.value = 'Сохранить'
-  saveButtonGreen.value = false
-}
-
-const saveSettings = async () => {
-  try {
-    saveBusy.value = true
-    saveLoading.value = true
-    await updateSettings({
-      id: settings.value?.id || `${authStore.user?.id}-settings`,
-      ask_note_on_record: askNote.value,
-      end_of_shift_hour: Number(overtimeHours.value) || 0,
-      end_of_shift_minute: Number(overtimeMinutes.value) || 0,
-      period_start: periodStart.value,
-      period_end: periodEnd.value,
-    })
-    // перечитываем из БД, чтобы запомнить реальный id строки
-    await loadSettings()
-    await loadPeriodOvertime()
-    await loadWorkLogs()
-    showToast('Настройки сохранены')
-    saveButtonText.value = 'Обновлено'
-    saveButtonGreen.value = true
-    if (saveTimer.value) clearTimeout(saveTimer.value)
-    saveTimer.value = window.setTimeout(resetSaveButton, 3000)
-  } catch (e: any) {
-    error.value = e.message || 'Ошибка сохранения'
-    showToast(e.message || 'Ошибка сохранения')
-    resetSaveButton()
-  } finally {
-    saveBusy.value = false
-    saveLoading.value = false
-  }
-}
-
+// мгновенный возврат кнопки в исходное состояние (отмена действия)
 const resetRecordButton = () => {
   if (recordingTimeout.value) clearTimeout(recordingTimeout.value)
   recordButtonText.value = 'Зафиксировать'
   recordButtonGreen.value = false
+}
+
+// зелёное «Обновлено» держим 1,4 с — столько длится анимация
+const scheduleRecordReset = () => {
+  if (recordingTimeout.value) clearTimeout(recordingTimeout.value)
   recordingTimeout.value = window.setTimeout(() => {
     recordButtonText.value = 'Зафиксировать'
     recordButtonGreen.value = false
-  }, 3000)
+  }, 1400)
 }
 
 // Записать/перезаписать запись за дату с комментарием
@@ -885,7 +864,7 @@ const emitRecord = async () => {
   } finally {
     if (!noteDialogOpen.value) {
       recordLoading.value = false
-      resetRecordButton()
+      scheduleRecordReset()
     }
   }
 }
@@ -908,7 +887,7 @@ const closeNoteDialog = async (note: string) => {
   } finally {
     recordLoading.value = false
     noteDraft.value = ''
-    resetRecordButton()
+    scheduleRecordReset()
   }
 }
 
@@ -1043,6 +1022,12 @@ onMounted(async () => {
       <img class="app-logo" :src="brandIcon" alt="" width="26" height="26" />
       <span class="app-brand">NNTime</span>
       <span class="app-brand-sub">сверхнормативное время</span>
+      <button class="settings-btn" @click="goSettings" title="Настройки: период, время смены, анимация и звук">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
     </div>
 
     <!-- User block -->
@@ -1059,68 +1044,15 @@ onMounted(async () => {
 
     <!-- Overtime total block -->
     <section class="overtime-block" ref="overtimeBlockEl">
-      <div class="overtime-head">
-        <div class="overtime-title">Сверхнормативно отработано за период всего (чч:мм)</div>
-        <button
-          class="sound-toggle"
-          @click="toggleSound"
-          :title="soundOn ? 'Выключить звук при фиксации' : 'Включить звук при фиксации'"
-        >
-          <svg v-if="soundOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
-            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
-            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
-          </svg>
-          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
-            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-            <line x1="23" y1="9" x2="17" y2="15"/>
-            <line x1="17" y1="9" x2="23" y2="15"/>
-          </svg>
-        </button>
-      </div>
+      <div class="overtime-title">Сверхнормативно отработано за период всего (чч:мм)</div>
       <div class="overtime-row">
         <div class="overtime-value" ref="overtimeValueEl">{{ totalHours }}:{{ String(totalMinLeft).padStart(2, '0') }}</div>
         <span v-if="deltaText" class="delta-badge" :class="{ 'delta-badge-minus': deltaNegative }">{{ deltaText }}</span>
       </div>
-    </section>
-
-    <!-- Period & time settings (one white card) -->
-    <section class="settings-block">
-      <div class="field-row">
-        <span class="field-label">Период</span>
-        <div class="period-inputs-group">
-          <input type="date" v-model="periodStart" title="Начало периода отчёта" />
-          <span class="period-sep">—</span>
-          <input type="date" v-model="periodEnd" title="Конец периода отчёта" />
-        </div>
+      <div class="period-note">
+        <span class="period-note-text">за {{ periodLabel }}</span>
+        <button class="period-edit" @click="goSettings" title="Открыть настройки и изменить период">изменить</button>
       </div>
-
-      <div class="field-divider"></div>
-
-      <div class="field-row">
-        <span class="field-label">Время, после которого начинается переработка</span>
-        <div class="time-inline">
-          <div class="time-field">
-            <input type="number" v-model.number="overtimeHours" min="0" max="23" placeholder="18" title="Часы окончания смены" />
-            <span class="time-colon">:</span>
-            <input type="number" v-model.number="overtimeMinutes" min="0" max="59" placeholder="00" title="Минуты окончания смены" />
-          </div>
-          <button class="save-btn" @click="saveSettings" :disabled="saveLoading || saveBusy" :class="[classNameSave, { 'save-btn-green': saveButtonGreen }]" title="Сохранить период и время в базе">
-            {{ saveLoading ? 'Сохраняю...' : saveButtonText }}
-          </button>
-        </div>
-      </div>
-
-      <div class="field-divider"></div>
-
-      <label class="ask-note-row" title="Спрашивать комментарий при каждой фиксации">
-        <input type="checkbox" v-model="askNote" />
-        <span class="ask-note-box"></span>
-        <span class="ask-note-text">
-          <span class="ask-note-title">Спрашивать комментарий при фиксации</span>
-          <span class="ask-note-hint">После нажатия «Зафиксировать» откроется окно для заметки</span>
-        </span>
-      </label>
     </section>
 
     <!-- Fix button (circular) -->
@@ -1438,10 +1370,67 @@ onMounted(async () => {
 
 /* ── App brand ──────────────────────────────────────── */
 .app-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
+}
+
+.settings-btn {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #dfe4ee;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #6b7280;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.settings-btn:hover {
+  background: #eef3ff;
+  border-color: #c7d7fb;
+  color: #2563eb;
+}
+
+/* подпись периода под итогом */
+.period-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: #8b93a1;
+}
+
+.period-note-text {
+  font-variant-numeric: tabular-nums;
+}
+
+.period-edit {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #2563eb;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(37, 99, 235, 0.35);
+  text-underline-offset: 2px;
+}
+
+.period-edit:hover {
+  text-decoration-color: #2563eb;
 }
 
 .app-logo {
@@ -2890,7 +2879,7 @@ onMounted(async () => {
   .main-record-btn {
     width: clamp(220px, 70vw, 270px);
     height: clamp(220px, 70vw, 270px);
-    font-size: clamp(22px, 6vw, 28px);
+    font-size: clamp(20px, 5.6vw, 24px);
   }
 
   .results-block {
@@ -3071,7 +3060,7 @@ onMounted(async () => {
   .main-record-btn {
     width: clamp(200px, 62vw, 240px);
     height: clamp(200px, 62vw, 240px);
-    font-size: clamp(19px, 5.4vw, 24px);
+    font-size: clamp(18px, 5vw, 22px);
     padding: 0 8px;
   }
 
@@ -3107,6 +3096,15 @@ onMounted(async () => {
 
 /* Отчёт на телефоне: таблица превращается в карточки */
 @media screen and (max-width: 600px) {
+  /* шестерёнка не должна перекрывать подзаголовок */
+  .app-header {
+    padding-right: 46px;
+  }
+
+  .app-brand-sub {
+    display: none;
+  }
+
   .report-filters {
     padding: 10px 14px 0;
     gap: 6px;
