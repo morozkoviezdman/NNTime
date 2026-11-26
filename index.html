@@ -16,6 +16,18 @@
   </head>
   <body>
     <div id="app"></div>
+    <script>
+      // восстановление адреса после переадресации из 404.html
+      (function () {
+        var url = new URL(location.href);
+        var target = url.searchParams.get('redirect');
+        if (target === null) return;
+        url.searchParams.delete('redirect');
+        var rest = url.searchParams.toString();
+        var path = url.pathname + target.replace(/^\//, '');
+        history.replaceState(null, '', path + (rest ? '?' + rest : ''));
+      })();
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

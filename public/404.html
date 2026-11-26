@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <title>NNTime</title>
+    <script>
+      // GitHub Pages отдаёт 404 на прямые ссылки вида /NNTime/app или /NNTime/settings.
+      // Возвращаем адрес на корень приложения и запоминаем путь, чтобы роутер его восстановил.
+      (function () {
+        var base = '/NNTime/';
+        var path = location.pathname.indexOf(base) === 0
+          ? location.pathname.slice(base.length)
+          : location.pathname.replace(/^\//, '');
+        var qs = location.search || '';
+        location.replace(base + '?redirect=' + encodeURIComponent(path + qs));
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>

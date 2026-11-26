@@ -64,6 +64,7 @@ const overtimeValueEl = ref<HTMLElement | null>(null)
 const overtimeBlockEl = ref<HTMLElement | null>(null)
 const deltaText = ref('')
 const deltaNegative = ref(false)
+const deltaZero = ref(false)
 const effectBusy = ref(false)
 const soundOn = ref(localStorage.getItem('nntime_sound') !== 'off')
 let audioCtx: AudioContext | null = null
@@ -96,7 +97,7 @@ const fmtDelta = (minutes: number) => {
   const abs = Math.abs(minutes)
   const h = Math.floor(abs / 60)
   const m = abs % 60
-  const sign = minutes < 0 ? '−' : '+'
+  const sign = minutes > 0 ? '+' : minutes < 0 ? '−' : ''
   return `${sign}${h}:${String(m).padStart(2, '0')}`
 }
 
@@ -106,20 +107,27 @@ const setShownTotal = (mins: number) => {
   totalMinLeft.value = mins % 60
 }
 
-const tweenTotal = (from: number, to: number, duration = 520) =>
+const tweenTotal = (from: number, to: number, duration = 600) =>
   new Promise<void>((resolve) => {
+    let done = false
+    const finish = () => {
+      if (done) return
+      done = true
+      setShownTotal(to)
+      resolve()
+    }
     const start = performance.now()
     const step = (now: number) => {
+      if (done) return
       const t = Math.min(1, (now - start) / duration)
       const eased = 1 - Math.pow(1 - t, 3)
       setShownTotal(Math.round(from + (to - from) * eased))
       if (t < 1) requestAnimationFrame(step)
-      else {
-        setShownTotal(to)
-        resolve()
-      }
+      else finish()
     }
     requestAnimationFrame(step)
+    // страховка: в фоновой вкладке кадры не идут — завершаем по таймеру
+    window.setTimeout(finish, duration + 400)
   })
 
 const fxLayer = () => {
@@ -134,7 +142,7 @@ const spawnParticles = (x: number, y: number, negative: boolean) => {
   const palette = negative
     ? ['#f59e0b', '#fbbf24', '#f97316']
     : ['#2563eb', '#60a5fa', '#93c5fd', '#1d4ed8']
-  const count = 16
+  const count = 24
   for (let i = 0; i < count; i += 1) {
     const el = document.createElement('div')
     el.className = 'fx-particle'
@@ -142,7 +150,7 @@ const spawnParticles = (x: number, y: number, negative: boolean) => {
     el.style.top = `${y}px`
     el.style.background = palette[i % palette.length]
     const angle = (Math.PI * 2 * i) / count + Math.random() * 0.4
-    const dist = 40 + Math.random() * 70
+    const dist = 60 + Math.random() * 110
     const dx = Math.cos(angle) * dist
     const dy = Math.sin(angle) * dist
     el.animate(
@@ -153,11 +161,11 @@ const spawnParticles = (x: number, y: number, negative: boolean) => {
           opacity: 0,
         },
       ],
-      { duration: 420 + Math.random() * 160, easing: 'cubic-bezier(.2,.7,.3,1)' },
+      { duration: 520 + Math.random() * 220, easing: 'cubic-bezier(.2,.7,.3,1)' },
     )
     layer.appendChild(el)
   }
-  setTimeout(() => layer.remove(), 1000)
+  setTimeout(() => layer.remove(), 1100)
 }
 
 const spawnRing = (x: number, y: number, negative: boolean) => {
@@ -169,10 +177,10 @@ const spawnRing = (x: number, y: number, negative: boolean) => {
   layer.appendChild(ring)
   ring.animate(
     [
-      { transform: 'translate(-50%, -50%) scale(0.4)', opacity: 0.75 },
-      { transform: 'translate(-50%, -50%) scale(4.2)', opacity: 0 },
+      { transform: 'translate(-50%, -50%) scale(0.4)', opacity: 0.8 },
+      { transform: 'translate(-50%, -50%) scale(5)', opacity: 0 },
     ],
-    { duration: 560, easing: 'cubic-bezier(.2,.8,.2,1)' },
+    { duration: 640, easing: 'cubic-bezier(.2,.8,.2,1)' },
   )
   setTimeout(() => layer.remove(), 700)
 }
@@ -227,6 +235,7 @@ const flyPill = (text: string, from: DOMRect, to: DOMRect, negative: boolean, du
 const showDelta = (delta: number) => {
   deltaText.value = fmtDelta(delta)
   deltaNegative.value = delta < 0
+  deltaZero.value = delta === 0
   window.setTimeout(() => {
     deltaText.value = ''
   }, 2400)
@@ -234,12 +243,17 @@ const showDelta = (delta: number) => {
 
 // весь эффект: искры → перелёт → удар → прокрутка счётчика
 const playRecordEffect = async (delta: number, fromTotal: number, toTotal: number) => {
-  if (effectBusy.value || delta === 0) return
+  if (effectBusy.value) return
   effectBusy.value = true
   const negative = delta < 0
   // настройка «Полная анимация» перекрывает системное «уменьшение движения»
   const forceAnimation = localStorage.getItem('nntime_animation') === 'full'
   const reduceMotion = !forceAnimation && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  if (reduceMotion && !sessionStorage.getItem('nntime_motion_hint')) {
+    sessionStorage.setItem('nntime_motion_hint', '1')
+    showToast('Анимация сокращена настройкой устройства — включите «Полную анимацию» в настройках')
+  }
 
   playTick()
   showDelta(delta)
@@ -247,8 +261,12 @@ const playRecordEffect = async (delta: number, fromTotal: number, toTotal: numbe
   const btnRect = recordBtnEl.value?.getBoundingClientRect()
   const valueRect = overtimeValueEl.value?.getBoundingClientRect()
 
-  // страховка: даже если анимация где-то застрянет, точное значение появится через 2,4 с
+  // страховка: даже если анимация где-то застрянет, точное значение появится через 2,4 с,
+  // а блокировка следующего запуска снимется не позже чем через 4 с
   const guard = window.setTimeout(() => setShownTotal(toTotal), 2400)
+  const watchdog = window.setTimeout(() => {
+    effectBusy.value = false
+  }, 4000)
 
   try {
     if (!btnRect || !valueRect || reduceMotion) {
@@ -261,10 +279,10 @@ const playRecordEffect = async (delta: number, fromTotal: number, toTotal: numbe
 
     // перелёт не блокирует счётчик: если анимация не отыграет, число всё равно доедет
     window.setTimeout(() => {
-      void flyPill(fmtDelta(delta), btnRect, valueRect, negative)
-    }, 130)
+      void flyPill(fmtDelta(delta), btnRect, valueRect, negative, 650)
+    }, 140)
 
-    await new Promise((r) => window.setTimeout(r, 520))
+    await new Promise((r) => window.setTimeout(r, 640))
 
     spawnRing(valueRect.left + valueRect.width / 2, valueRect.top + valueRect.height / 2, negative)
     const block = overtimeBlockEl.value
@@ -274,9 +292,10 @@ const playRecordEffect = async (delta: number, fromTotal: number, toTotal: numbe
       block.classList.add('impact')
       window.setTimeout(() => block.classList.remove('impact'), 520)
     }
-    await tweenTotal(fromTotal, toTotal, 520)
+    await tweenTotal(fromTotal, toTotal, 600)
   } finally {
     window.clearTimeout(guard)
+    window.clearTimeout(watchdog)
     setShownTotal(toTotal)
     effectBusy.value = false
   }
@@ -494,6 +513,16 @@ const rowStyle = (minutes: number) => {
 const changesOpen = ref(false)
 const changelog = [
   {
+    version: 'v1.6.1',
+    date: '26 ноября 2026',
+    items: [
+      'Прямые ссылки на /app и /settings больше не дают ошибку 404 после обновления страницы',
+      'Анимация фиксации срабатывает при каждом нажатии — даже если сумма за день не изменилась',
+      'Искры и «таблетка» с прибавкой стали крупнее и заметнее',
+      'Если анимацию урезает настройка устройства, приложение подсказывает включить «Полную анимацию»',
+    ],
+  },
+  {
     version: 'v1.6.0',
     date: '26 ноября 2026',
     items: [
@@ -594,7 +623,7 @@ const changelog = [
   },
 ]
 
-const version = 'v1.6.0'
+const version = 'v1.6.1'
 // дата выпуска версии — меняется вручную при выпуске, а не каждый день
 const releaseDate = '26 ноября 2026'
 const brandIcon = `${import.meta.env.BASE_URL}icon.svg`
@@ -1059,7 +1088,7 @@ onMounted(async () => {
       <div class="overtime-title">Сверхнормативно отработано за период всего (чч:мм)</div>
       <div class="overtime-row">
         <div class="overtime-value" ref="overtimeValueEl">{{ totalHours }}:{{ String(totalMinLeft).padStart(2, '0') }}</div>
-        <span v-if="deltaText" class="delta-badge" :class="{ 'delta-badge-minus': deltaNegative }">{{ deltaText }}</span>
+        <span v-if="deltaText" class="delta-badge" :class="{ 'delta-badge-minus': deltaNegative, 'delta-badge-zero': deltaZero }">{{ deltaText }}</span>
       </div>
       <div class="period-note">
         <span class="period-note-text">за {{ periodLabel }}</span>
@@ -1617,6 +1646,10 @@ onMounted(async () => {
   color: #ea580c;
 }
 
+.delta-badge-zero {
+  color: #6b7280;
+}
+
 @keyframes delta-pop {
   0% { opacity: 0; transform: translateY(10px) scale(0.8); }
   12% { opacity: 1; transform: translateY(0) scale(1.12); }
@@ -1636,8 +1669,8 @@ onMounted(async () => {
 
 .fx-particle {
   position: absolute;
-  width: 6px;
-  height: 6px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   will-change: transform, opacity;
 }
@@ -1646,11 +1679,11 @@ onMounted(async () => {
   position: absolute;
   left: 0;
   top: 0;
-  padding: 6px 13px;
+  padding: 8px 16px;
   border-radius: 999px;
   background: #2563eb;
   color: #ffffff;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 800;
   white-space: nowrap;
   box-shadow: 0 10px 24px rgba(37, 99, 235, 0.35);
@@ -1664,8 +1697,8 @@ onMounted(async () => {
 
 .fx-ring {
   position: absolute;
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   border: 2px solid rgba(37, 99, 235, 0.6);
   will-change: transform, opacity;
