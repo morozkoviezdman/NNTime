@@ -124,7 +124,7 @@ const runLevelUpFx = async (daysAfter: number) => {
   levelFreeze.value = true
   levelUpFlash.value = true
   levelUpBadge.value = '+1 день'
-  playTick()
+  playLevelUp()
 
   const bar = levelBarEl.value?.getBoundingClientRect()
   if (bar) {
@@ -218,6 +218,42 @@ const playTick = () => {
     gain.connect(ctx.destination)
     osc.start()
     osc.stop(ctx.currentTime + 0.15)
+  } catch {
+    /* звук не критичен */
+  }
+}
+
+
+// короткая фанфара закрытого уровня: три ноты вверх
+const playLevelUp = () => {
+  if (!soundOn.value) return
+  try {
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext
+    if (!Ctx) return
+    audioCtx = audioCtx ?? new Ctx()
+    const ctx = audioCtx
+    if (ctx.state === 'suspended') void ctx.resume()
+
+    const notes = [
+      { f: 659.25, t: 0.0 },   // ми
+      { f: 783.99, t: 0.11 },  // соль
+      { f: 1046.5, t: 0.22 },  // до второй октавы
+    ]
+
+    notes.forEach(({ f, t }) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      const start = ctx.currentTime + t
+      osc.type = 'triangle'
+      osc.frequency.setValueAtTime(f, start)
+      gain.gain.setValueAtTime(0.0001, start)
+      gain.gain.exponentialRampToValueAtTime(0.09, start + 0.012)
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.28)
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start(start)
+      osc.stop(start + 0.3)
+    })
   } catch {
     /* звук не критичен */
   }
@@ -802,20 +838,17 @@ const rowStyle = (minutes: number) => {
 const changesOpen = ref(false)
 const changelog = [
   {
-    version: 'v1.6.0',
-    date: '26 ноября 2026',
+    version: 'v1.6.1',
+    date: '28 ноября 2026',
     items: [
-      'Настройки вынесены на отдельный экран: шестерёнка в правом верхнем углу, период и время убраны с главного',
-      'Под итогом видно, за какой период посчитано, рядом кнопка «изменить»',
-      'Тумблеры вместо галочек: комментарий при фиксации, полная анимация, звук',
-      'Анимация фиксации: искры из кнопки, «таблетка» с прибавкой летит к итогу, удар по блоку и прокрутка числа',
-      'Полная версия анимации: кнопка растворяется в частицах и собирается обратно',
-      'Анимация запускается сразу по нажатию, не дожидаясь ответа базы',
-      'Зелёные состояния убраны: кнопка фиксации больше не меняет цвет',
-      'Прямые ссылки на /app и /settings открываются без ошибки 404',
-      'В отчёте: фильтр «> 30 мин», подсветка строк по величине сверхнормы, график по дням и месяцам',
-      'Экспорт отчёта в CSV и кнопка «Поделиться», печать без графика',
-      'Период и время стали персональными для каждого аккаунта',
+      'Полоска «Дополнительные дни» с делением по часам',
+      'Настройка «Норма рабочего времени» — 1–24 часа',
+      'Крупная плашка «+1 день» при закрытии уровня',
+      'Прибавка показывается в полоске, число не сдвигается',
+      'Звук при начислении нового дня',
+      'Главный экран обновляется после закрытия отчёта',
+      'Блок «Как добавить на домашний экран» перенесён в настройки',
+      'Период, время и норма — свои у каждого аккаунта',
     ],
   },
   {
@@ -907,9 +940,9 @@ const changelog = [
   },
 ]
 
-const version = 'v1.6.0'
+const version = 'v1.6.1'
 // дата выпуска версии — меняется вручную при выпуске, а не каждый день
-const releaseDate = '26 ноября 2026'
+const releaseDate = '28 ноября 2026'
 const brandIcon = `${import.meta.env.BASE_URL}icon.svg`
 
 const error = ref('')
@@ -1260,7 +1293,7 @@ const openReport = async () => {
   reportOpen.value = true
 }
 
-const closeReport = () => {
+const closeReport = async () => {
   reportOpen.value = false
   editingId.value = null
   currentNote.value = ''
@@ -1268,6 +1301,14 @@ const closeReport = () => {
   exportDialogOpen.value = false
   reportPeriod.value = null
   showToast('Окно закрыто')
+
+  // синхронизация с сервером: в отчёте могли удалить или изменить записи
+  try {
+    await loadPeriodOvertime()
+    await loadWorkLogs()
+  } catch (e: any) {
+    console.warn('[sync] не удалось обновить данные после отчёта:', e?.message)
+  }
 }
 
 const startEdit = (log: any) => {
