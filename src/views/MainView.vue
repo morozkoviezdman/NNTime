@@ -53,11 +53,7 @@ const hexToRgba = (hex: string, a: number) => {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`
 }
 
-const fillStyle = computed(() => ({
-  width: fillPct.value + '%',
-  background: `linear-gradient(92deg, ${levelColors.value[0]} 0%, ${levelColors.value[1]} 45%, ${levelColors.value[2]} 100%)`,
-  boxShadow: `0 0 18px ${hexToRgba(levelColors.value[0], 0.3)}, inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -8px 12px rgba(4,20,60,0.14)`,
-}))
+
 
 const underStyle = computed(() => ({
   background: `linear-gradient(92deg, ${prevColors.value[0]} 0%, ${prevColors.value[1]} 45%, ${prevColors.value[2]} 100%)`,
@@ -83,10 +79,76 @@ const normLabel = computed(() => {
 const levelUpFlash = ref(false)
 let levelUpTimer: number | undefined
 
-const flashLevelUp = () => {
+// надпись «+N добавлено» появляется прямо в полоске
+const barDeltaText = ref('')
+const deltaNegativeRef = ref(false)
+let barDeltaTimer: number | undefined
+
+const showBarDelta = (delta: number) => {
+  if (levelFreeze.value) return // идёт праздник уровня — там своя плашка
+  barDeltaText.value = `${fmtDelta(delta)} добавлено`
+  deltaNegativeRef.value = delta < 0
+  window.clearTimeout(barDeltaTimer)
+  barDeltaTimer = window.setTimeout(() => { barDeltaText.value = '' }, 1900)
+}
+
+const barDeltaStyle = computed(() => ({
+  left: `${Math.min(84, Math.max(16, fillPct.value))}%`,
+}))
+
+// пока идёт «праздник» уровня, полоска стоит заполненной на 100% старым цветом
+const levelFreeze = ref(false)
+const frozenColors = ref<string[] | null>(null)
+
+const barFillPct = computed(() => (levelFreeze.value ? 100 : fillPct.value))
+const barColors = computed(() => (levelFreeze.value && frozenColors.value ? frozenColors.value : levelColors.value))
+
+const barFillStyle = computed(() => ({
+  width: barFillPct.value + '%',
+  background: `linear-gradient(92deg, ${barColors.value[0]} 0%, ${barColors.value[1]} 45%, ${barColors.value[2]} 100%)`,
+  boxShadow: `0 0 18px ${hexToRgba(barColors.value[0], 0.3)}, inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -8px 12px rgba(4,20,60,0.14)`,
+}))
+
+const levelUpBadge = ref('')
+
+// праздник закрытого уровня: полоска доходит до конца, вспыхивает, летят искры,
+// крупная плашка «+1 день», и только потом полоска переходит на новый цвет
+const runLevelUpFx = async (daysAfter: number) => {
+  const { ms } = fxTiming()
+
+  // плашка «+1 день» заменяет подпись прибавки в полоске, чтобы не мешали друг другу
+  barDeltaText.value = ''
+  window.clearTimeout(barDeltaTimer)
+
+  frozenColors.value = LEVEL_COLORS[(daysAfter - 1) % LEVEL_COLORS.length]
+  levelFreeze.value = true
   levelUpFlash.value = true
+  levelUpBadge.value = '+1 день'
+  playTick()
+
+  const bar = levelBarEl.value?.getBoundingClientRect()
+  if (bar) {
+    burst({
+      cx: bar.left + bar.width * 0.5,
+      cy: bar.top + bar.height / 2,
+      fromRadius: 8,
+      toRadius: 170,
+      backRadius: 24,
+      count: 34,
+      negative: false,
+      delay: 0,
+      duration: ms(820),
+      jitter: ms(90),
+      sizeBase: 11,
+    })
+  }
+
+  await wait(ms(1100))
+  levelFreeze.value = false
+
   window.clearTimeout(levelUpTimer)
-  levelUpTimer = window.setTimeout(() => { levelUpFlash.value = false }, 1300)
+  levelUpTimer = window.setTimeout(() => { levelUpFlash.value = false }, ms(900))
+  window.setTimeout(() => { levelUpBadge.value = '' }, ms(1600))
 }
 
 const goSettings = () => router.push('/settings')
@@ -131,11 +193,7 @@ const reportPeriod = ref<{ start: string; end: string } | null>(null)
 
 // ── анимация фиксации ─────────────────────────────
 const recordBtnEl = ref<HTMLElement | null>(null)
-const overtimeValueEl = ref<HTMLElement | null>(null)
-const overtimeBlockEl = ref<HTMLElement | null>(null)
-const deltaText = ref('')
-const deltaNegative = ref(false)
-const deltaZero = ref(false)
+const levelBarEl = ref<HTMLElement | null>(null)
 const fxHidden = ref(false)
 const effectBusy = ref(false)
 const soundOn = ref(localStorage.getItem('nntime_sound') !== 'off')
@@ -342,28 +400,12 @@ const flyPill = (text: string, from: DOMRect, to: DOMRect, negative: boolean, du
   }, duration + 120)
 }
 
-const showDelta = (delta: number) => {
-  deltaText.value = fmtDelta(delta)
-  deltaNegative.value = delta < 0
-  deltaZero.value = delta === 0
-  window.setTimeout(() => {
-    deltaText.value = ''
-  }, 2400)
-}
 
 // параметры эффекта фиксации (подобраны вручную)
 const FX_CONST = { speed: 1.3, size: 18, count: 80 }
 
 const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms))
 
-const shakeBlock = () => {
-  const block = overtimeBlockEl.value
-  if (!block) return
-  block.classList.remove('impact')
-  void block.offsetWidth
-  block.classList.add('impact')
-  window.setTimeout(() => block.classList.remove('impact'), 520)
-}
 
 const cancelButtonAnimations = (btn: HTMLElement | null | undefined) => {
   if (!btn) return
@@ -483,39 +525,52 @@ const finishRecordFx = async (delta: number, fromTotal: number, toTotal: number)
   const { ms } = fxTiming()
   const btn = recordBtnEl.value
 
+  const daysBefore = Math.floor(fromTotal / normMinutes.value)
+  const daysAfter = Math.floor(toTotal / normMinutes.value)
+  const crossed = daysAfter > daysBefore
+
   if (!effectBusy.value) {
-    showDelta(delta)
+    showBarDelta(delta)
+    if (crossed) void runLevelUpFx(daysAfter)
     await tweenTotal(fromTotal, toTotal, ms(460))
     return
   }
 
-  const guard = window.setTimeout(() => setShownTotal(toTotal), 2600)
+  const guard = window.setTimeout(() => setShownTotal(toTotal), 4200)
   try {
     // даём частицам разлететься, но не ждём дольше ~0,6 с
-    const minTime = ms(620)
+    const minTime = ms(430)
     const elapsed = Date.now() - fxStartedAt
     if (elapsed < minTime) await wait(minTime - elapsed)
 
-    showDelta(delta)
     setShownTotal(fromTotal)
 
     const btnRect = btn?.getBoundingClientRect()
-    const valueRect = overtimeValueEl.value?.getBoundingClientRect()
+    const barRect = levelBarEl.value?.getBoundingClientRect()
     const negative = delta < 0
 
-    if (btnRect && valueRect) {
-      void flyPill(fmtDelta(delta), btnRect, valueRect, negative, ms(650))
+    if (btnRect && barRect) {
+      // «таблетка» летит к краю заполнения полоски и там растворяется
+      const edgeX = barRect.left + barRect.width * Math.min(1, Math.max(0.04, fillPct.value / 100))
+      const target = { left: edgeX - 30, top: barRect.top, width: 60, height: barRect.height } as DOMRect
+
+      void flyPill(fmtDelta(delta), btnRect, target, negative, ms(680))
       window.setTimeout(() => {
-        spawnRing(valueRect.left + valueRect.width / 2, valueRect.top + valueRect.height / 2, 24, negative)
-        shakeBlock()
-      }, ms(420))
+        spawnRing(edgeX, barRect.top + barRect.height / 2, 20, negative)
+      }, ms(520))
     }
+
+    // надпись внутри полоски появляется в момент долива
+    window.setTimeout(() => showBarDelta(delta), ms(620))
 
     if (fxVariant === 'full') {
       await wait(ms(330))
       fxHidden.value = false
       if (btn) revealButton(btn, ms(320))
     }
+
+    // праздник уровня запускаем вместе с прокруткой числа, а не после неё
+    if (crossed) void runLevelUpFx(daysAfter)
 
     await tweenTotal(fromTotal, toTotal, ms(600))
   } finally {
@@ -1066,11 +1121,6 @@ const writeRecord = async (date: string, pressTime: Date, overtimeMins: number, 
   await loadWorkLogs()
   const afterTotal = totalMinutes.value
 
-  // закрылся ли новый «дополнительный день» — тогда вспышка карточки
-  if (Math.floor(afterTotal / normMinutes.value) > Math.floor(beforeTotal / normMinutes.value)) {
-    flashLevelUp()
-  }
-
   void finishRecordFx(afterTotal - beforeTotal, beforeTotal, afterTotal)
 }
 
@@ -1301,28 +1351,33 @@ onMounted(async () => {
     </section>
 
     <!-- Overtime total block -->
-    <section class="overtime-block" :class="{ 'level-up-flash': levelUpFlash }" ref="overtimeBlockEl">
+    <section class="overtime-block" :class="{ 'level-up-flash': levelUpFlash }">
       <div class="overtime-title">
         Сверхнормативно отработано за
         <span class="overtime-period">{{ periodLabel }}</span>
         <button class="period-edit" @click="goSettings" title="Открыть настройки и изменить период">изменить</button>
       </div>
       <div class="overtime-row">
-        <div class="overtime-value" ref="overtimeValueEl">{{ totalHours }}:{{ String(totalMinLeft).padStart(2, '0') }}</div>
-        <span v-if="deltaText" class="delta-badge" :class="{ 'delta-badge-minus': deltaNegative, 'delta-badge-zero': deltaZero }">{{ deltaText }}</span>
+        <div class="overtime-value">{{ totalHours }}:{{ String(totalMinLeft).padStart(2, '0') }}</div>
       </div>
 
       <!-- Полоска уровней: одна норма смены = один дополнительный день -->
-      <div class="level-bar">
+      <div class="level-bar" ref="levelBarEl" :class="{ 'level-bar-flash': levelFreeze }">
         <div class="level-track"></div>
         <div v-if="daysEarned > 0" class="level-under" :style="underStyle"></div>
-        <div class="level-fill" :style="fillStyle"><span class="level-gloss"></span></div>
+        <div class="level-fill" :style="barFillStyle"><span class="level-gloss"></span></div>
         <div class="level-ticks">
           <span v-for="t in hoursPerLevel - 1" :key="'t' + t" :style="{ left: (t * 100 / hoursPerLevel) + '%' }"></span>
         </div>
-        <div class="level-ticks on-fill" :style="{ clipPath: 'inset(0 ' + (100 - fillPct) + '% 0 0)' }">
+        <div class="level-ticks on-fill" :style="{ clipPath: 'inset(0 ' + (100 - barFillPct) + '% 0 0)' }">
           <span v-for="t in hoursPerLevel - 1" :key="'f' + t" :style="{ left: (t * 100 / hoursPerLevel) + '%' }"></span>
         </div>
+        <span
+          v-if="barDeltaText"
+          class="level-delta"
+          :class="{ 'level-delta-minus': deltaNegativeRef }"
+          :style="barDeltaStyle"
+        >{{ barDeltaText }}</span>
       </div>
 
       <div class="level-foot">
@@ -1330,7 +1385,10 @@ onMounted(async () => {
         <span class="level-rest">{{ restLabel }} из {{ normLabel }}</span>
       </div>
 
-      <span v-if="levelUpFlash" class="level-up-badge">+1 день</span>
+      <div v-if="levelUpBadge" class="level-up-big">
+        <span class="level-up-big-num">+1</span>
+        <span class="level-up-big-text">день</span>
+      </div>
     </section>
 
     <!-- Fix button (circular) -->
@@ -1952,6 +2010,107 @@ onMounted(async () => {
   .level-fill { transition: none; }
   .level-up-flash { animation: none; }
   .level-up-badge { animation: none; opacity: 1; }
+}
+
+
+/* надпись «+N добавлено» прямо в полоске */
+.level-delta {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #1f2937;
+  font-size: 11.5px;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(16, 24, 40, 0.18);
+  animation: level-delta-in 1.9s ease forwards;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.level-delta-minus {
+  color: #ea580c;
+}
+
+@keyframes level-delta-in {
+  0% { opacity: 0; transform: translate(-50%, calc(-50% + 7px)) scale(0.9); }
+  12% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  76% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, calc(-50% - 7px)) scale(0.98); }
+}
+
+/* вспышка полоски в момент закрытия уровня */
+.level-bar-flash .level-fill {
+  animation: bar-glow 1.05s ease-in-out 2;
+}
+
+@keyframes bar-glow {
+  0%, 100% { filter: brightness(1) saturate(1); }
+  50% { filter: brightness(1.22) saturate(1.15); }
+}
+
+.level-bar-flash::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.4), 0 0 26px rgba(245, 158, 11, 0.5);
+  animation: bar-ring 1.05s ease-out 2;
+  pointer-events: none;
+}
+
+@keyframes bar-ring {
+  0% { opacity: 0; transform: scale(0.98); }
+  30% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.03); }
+}
+
+/* крупная плашка «+1 день» по центру карточки */
+.level-up-big {
+  position: absolute;
+  left: 50%;
+  top: 71%;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 10px 22px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  color: #ffffff;
+  box-shadow: 0 14px 40px rgba(245, 158, 11, 0.45);
+  animation: level-up-pop 1.6s cubic-bezier(0.2, 1.2, 0.3, 1) forwards;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.level-up-big-num {
+  font-size: 36px;
+  font-weight: 900;
+  letter-spacing: -1px;
+  line-height: 1;
+}
+
+.level-up-big-text {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+@keyframes level-up-pop {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+  14% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+  24% { transform: translate(-50%, -50%) scale(1); }
+  78% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .level-delta { animation: none; opacity: 1; }
+  .level-bar-flash .level-fill { animation: none; }
+  .level-bar-flash::after { animation: none; opacity: 0; }
+  .level-up-big { animation: none; }
 }
 
 .sound-toggle {
