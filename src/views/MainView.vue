@@ -19,6 +19,76 @@ const periodLabel = computed(() => {
   return `${fmt(settings.value?.period_start)} — ${fmt(settings.value?.period_end)}`
 })
 
+// ── Уровни: одна норма смены = один «дополнительный день» ─
+const NORM_DEFAULT = 480 // 8 часов
+
+const normMinutes = computed(() => {
+  const n = Number(settings.value?.shift_norm_minutes)
+  return Number.isFinite(n) && n >= 60 ? n : NORM_DEFAULT
+})
+
+const hoursPerLevel = computed(() => Math.max(2, Math.round(normMinutes.value / 60)))
+
+const daysEarned = computed(() => Math.floor(totalMinutes.value / normMinutes.value))
+const restInLevel = computed(() => totalMinutes.value - daysEarned.value * normMinutes.value)
+const fillPct = computed(() => Math.min(100, (restInLevel.value / normMinutes.value) * 100))
+
+// палитра уровней: синий → бирюзовый → зелёный → лаймовый → янтарный → оранжевый → розовый
+const LEVEL_COLORS = [
+  ['#2563eb', '#3b82f6', '#22d3ee'],
+  ['#0ea5e9', '#22d3ee', '#2dd4bf'],
+  ['#16a34a', '#22c55e', '#4ade80'],
+  ['#65a30d', '#84cc16', '#a3e635'],
+  ['#d97706', '#f59e0b', '#fcd34d'],
+  ['#ea580c', '#f97316', '#fb923c'],
+  ['#be185d', '#db2777', '#f472b6'],
+]
+
+const levelColors = computed(() => LEVEL_COLORS[daysEarned.value % LEVEL_COLORS.length])
+const prevColors = computed(() => LEVEL_COLORS[(daysEarned.value - 1 + LEVEL_COLORS.length) % LEVEL_COLORS.length])
+
+const hexToRgba = (hex: string, a: number) => {
+  const h = hex.replace('#', '')
+  const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16)
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`
+}
+
+const fillStyle = computed(() => ({
+  width: fillPct.value + '%',
+  background: `linear-gradient(92deg, ${levelColors.value[0]} 0%, ${levelColors.value[1]} 45%, ${levelColors.value[2]} 100%)`,
+  boxShadow: `0 0 18px ${hexToRgba(levelColors.value[0], 0.3)}, inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -8px 12px rgba(4,20,60,0.14)`,
+}))
+
+const underStyle = computed(() => ({
+  background: `linear-gradient(92deg, ${prevColors.value[0]} 0%, ${prevColors.value[1]} 45%, ${prevColors.value[2]} 100%)`,
+}))
+
+const daysLabel = computed(() => {
+  const n = daysEarned.value
+  const m10 = n % 10
+  const m100 = n % 100
+  let word = 'дней'
+  if (m10 === 1 && m100 !== 11) word = 'день'
+  else if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) word = 'дня'
+  return `${n} ${word}`
+})
+
+const restLabel = computed(() => `${Math.floor(restInLevel.value / 60)} ч ${String(restInLevel.value % 60).padStart(2, '0')} м`)
+
+const normLabel = computed(() => {
+  const h = normMinutes.value / 60
+  return `${Number.isInteger(h) ? h : h.toFixed(1).replace('.', ',')} ч`
+})
+
+const levelUpFlash = ref(false)
+let levelUpTimer: number | undefined
+
+const flashLevelUp = () => {
+  levelUpFlash.value = true
+  window.clearTimeout(levelUpTimer)
+  levelUpTimer = window.setTimeout(() => { levelUpFlash.value = false }, 1300)
+}
+
 const goSettings = () => router.push('/settings')
 const overtimeHours = ref(18)
 const overtimeMinutes = ref(0)
@@ -995,6 +1065,12 @@ const writeRecord = async (date: string, pressTime: Date, overtimeMins: number, 
   await loadPeriodOvertime()
   await loadWorkLogs()
   const afterTotal = totalMinutes.value
+
+  // закрылся ли новый «дополнительный день» — тогда вспышка карточки
+  if (Math.floor(afterTotal / normMinutes.value) > Math.floor(beforeTotal / normMinutes.value)) {
+    flashLevelUp()
+  }
+
   void finishRecordFx(afterTotal - beforeTotal, beforeTotal, afterTotal)
 }
 
@@ -1225,16 +1301,36 @@ onMounted(async () => {
     </section>
 
     <!-- Overtime total block -->
-    <section class="overtime-block" ref="overtimeBlockEl">
-      <div class="overtime-title">Сверхнормативно отработано за период всего (чч:мм)</div>
+    <section class="overtime-block" :class="{ 'level-up-flash': levelUpFlash }" ref="overtimeBlockEl">
+      <div class="overtime-title">
+        Сверхнормативно отработано за
+        <span class="overtime-period">{{ periodLabel }}</span>
+        <button class="period-edit" @click="goSettings" title="Открыть настройки и изменить период">изменить</button>
+      </div>
       <div class="overtime-row">
         <div class="overtime-value" ref="overtimeValueEl">{{ totalHours }}:{{ String(totalMinLeft).padStart(2, '0') }}</div>
         <span v-if="deltaText" class="delta-badge" :class="{ 'delta-badge-minus': deltaNegative, 'delta-badge-zero': deltaZero }">{{ deltaText }}</span>
       </div>
-      <div class="period-note">
-        <span class="period-note-text">за {{ periodLabel }}</span>
-        <button class="period-edit" @click="goSettings" title="Открыть настройки и изменить период">изменить</button>
+
+      <!-- Полоска уровней: одна норма смены = один дополнительный день -->
+      <div class="level-bar">
+        <div class="level-track"></div>
+        <div v-if="daysEarned > 0" class="level-under" :style="underStyle"></div>
+        <div class="level-fill" :style="fillStyle"><span class="level-gloss"></span></div>
+        <div class="level-ticks">
+          <span v-for="t in hoursPerLevel - 1" :key="'t' + t" :style="{ left: (t * 100 / hoursPerLevel) + '%' }"></span>
+        </div>
+        <div class="level-ticks on-fill" :style="{ clipPath: 'inset(0 ' + (100 - fillPct) + '% 0 0)' }">
+          <span v-for="t in hoursPerLevel - 1" :key="'f' + t" :style="{ left: (t * 100 / hoursPerLevel) + '%' }"></span>
+        </div>
       </div>
+
+      <div class="level-foot">
+        <span class="level-days"><b>Дополнительные дни</b> · {{ daysLabel }}</span>
+        <span class="level-rest">{{ restLabel }} из {{ normLabel }}</span>
+      </div>
+
+      <span v-if="levelUpFlash" class="level-up-badge">+1 день</span>
     </section>
 
     <!-- Fix button (circular) -->
@@ -1262,33 +1358,6 @@ onMounted(async () => {
         </svg>
         <span>Вывести отчёт за выбранный период</span>
       </button>
-    </div>
-
-    <!-- Install note -->
-    <div class="hint-box">
-      <div class="hint-head">
-        <span class="hint-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
-            <rect x="5" y="2" width="14" height="20" rx="3"/>
-            <line x1="12" y1="18" x2="12" y2="18"/>
-          </svg>
-        </span>
-        <span class="hint-title">Как добавить на домашний экран</span>
-      </div>
-
-      <div class="hint-item">
-        <span class="hint-badge">iOS</span>
-        <p class="hint-text">
-          В Safari нажмите <b>«Поделиться»</b> → <b>«Добавить на домашний экран»</b> → <b>«Добавить»</b>
-        </p>
-      </div>
-
-      <div class="hint-item">
-        <span class="hint-badge">Android</span>
-        <p class="hint-text">
-          В Chrome откройте меню <b>⋮</b> → <b>«Добавить на экран»</b> (или «Установить приложение») → <b>«Добавить»</b>
-        </p>
-      </div>
     </div>
 
     <!-- Version & Changes footer -->
@@ -1738,11 +1807,151 @@ onMounted(async () => {
 }
 
 .overtime-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #555b66;
-  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #8b93a1;
+  margin-bottom: 2px;
   display: block;
+  line-height: 1.7;
+  padding-right: 34px;
+}
+
+.overtime-period {
+  color: #3f4754;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.overtime-block .period-edit {
+  margin-left: 6px;
+}
+
+/* ── Полоска уровней ─────────────────────────────────── */
+.level-bar {
+  position: relative;
+  height: 30px;
+  margin: 4px 0 8px;
+}
+
+.level-track,
+.level-under,
+.level-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+}
+
+.level-track {
+  background: linear-gradient(180deg, #eef1f7, #e2e7f0);
+  box-shadow:
+    inset 0 2px 5px rgba(16, 24, 40, 0.14),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 0 #fff;
+  overflow: hidden;
+}
+
+/* бледная подложка предыдущего (закрытого) уровня */
+.level-under {
+  opacity: 0.2;
+  overflow: hidden;
+}
+
+.level-fill {
+  right: auto;
+  min-width: 12px;
+  overflow: hidden;
+  box-shadow:
+    0 0 18px rgba(37, 99, 235, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -8px 12px rgba(4, 20, 60, 0.14);
+  transition: width 0.55s cubic-bezier(0.22, 1, 0.36, 1), background 0.4s ease;
+}
+
+.level-gloss {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 3px;
+  height: 38%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.06));
+}
+
+.level-ticks {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.level-ticks span {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 1px;
+  background: rgba(16, 24, 40, 0.12);
+}
+
+.level-ticks.on-fill span {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.level-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #8b93a1;
+  line-height: 1.4;
+}
+
+.level-foot b {
+  color: #3f4754;
+  font-weight: 700;
+}
+
+.level-rest {
+  white-space: nowrap;
+}
+
+/* вспышка при закрытии уровня */
+.level-up-flash {
+  animation: level-flash 1.3s ease;
+}
+
+@keyframes level-flash {
+  0% { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04); background: #fff; border-color: #e5e8ef; }
+  12% { box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.35), 0 10px 34px rgba(245, 158, 11, 0.3); background: #fffdf4; border-color: #fde68a; }
+  60% { box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.28), 0 8px 28px rgba(245, 158, 11, 0.22); background: #fffdf6; border-color: #fde68a; }
+  100% { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04); background: #fff; border-color: #e5e8ef; }
+}
+
+.level-up-badge {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 800;
+  animation: level-badge 1.3s ease forwards;
+}
+
+@keyframes level-badge {
+  0% { opacity: 0; transform: translateY(-6px) scale(0.9); }
+  14% { opacity: 1; transform: translateY(0) scale(1.06); }
+  24% { transform: scale(1); }
+  82% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-4px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .level-fill { transition: none; }
+  .level-up-flash { animation: none; }
+  .level-up-badge { animation: none; opacity: 1; }
 }
 
 .sound-toggle {

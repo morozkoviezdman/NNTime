@@ -204,6 +204,12 @@ export async function updateSettings(updates: Partial<SettingsRow>) {
     updated_at: new Date().toISOString(),
   }
 
+  // норма смены (минуты) — пишем только если передана, иначе остаётся значение в базе
+  if (updates.shift_norm_minutes != null) {
+    const norm = Math.round(Number(updates.shift_norm_minutes))
+    payload.shift_norm_minutes = Math.min(1440, Math.max(60, Number.isFinite(norm) ? norm : 480))
+  }
+
   const existing = await getSettings()
 
   // Пишем, отбрасывая колонки, которых нет в конкретной базе

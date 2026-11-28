@@ -12,6 +12,7 @@ export type Database = {
           id: string
           period_end: string
           period_start: string
+          shift_norm_minutes: number
           updated_at: string
           user_id: string
         }
@@ -21,6 +22,7 @@ export type Database = {
           id?: string
           period_end: string
           period_start: string
+          shift_norm_minutes?: number
           updated_at?: string
           user_id?: string
         }
@@ -30,6 +32,7 @@ export type Database = {
           id?: string
           period_end?: string
           period_start?: string
+          shift_norm_minutes?: number
           updated_at?: string
           user_id?: string
         }

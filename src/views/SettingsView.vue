@@ -16,6 +16,7 @@ const periodEnd = ref('')
 const hour = ref(18)
 const minute = ref(0)
 const askNote = ref(false)
+const normHours = ref(8)
 
 // настройки, которые живут на устройстве
 const soundOn = ref(localStorage.getItem('nntime_sound') !== 'off')
@@ -74,6 +75,7 @@ const loadSettings = async () => {
     hour.value = data?.end_of_shift_hour ?? 18
     minute.value = data?.end_of_shift_minute ?? 0
     askNote.value = !!(data as any)?.ask_note_on_record
+    normHours.value = Math.round(((data as any)?.shift_norm_minutes ?? 480) / 30) / 2
   } catch (e: any) {
     error.value = e.message || 'Не удалось загрузить настройки'
   } finally {
@@ -96,6 +98,7 @@ const save = async () => {
     saving.value = true
     await updateSettings({
       ask_note_on_record: askNote.value,
+      shift_norm_minutes: Math.round(Number(normHours.value) * 60),
       end_of_shift_hour: Number(hour.value) || 0,
       end_of_shift_minute: Number(minute.value) || 0,
       period_start: periodStart.value,
@@ -108,6 +111,11 @@ const save = async () => {
     saving.value = false
   }
 }
+
+const normLabel = computed(() => {
+  const h = Number(normHours.value)
+  return `${Number.isInteger(h) ? h : h.toFixed(1).replace('.', ',')} ч`
+})
 
 const goBack = () => {
   if (window.history.length > 1) router.back()
@@ -153,6 +161,25 @@ onMounted(loadSettings)
           <input type="number" v-model.number="minute" min="0" max="59" placeholder="00" title="Минуты окончания смены" />
         </div>
         <div class="hint">Всё, что зафиксировано позже этого времени, считается переработкой.</div>
+      </section>
+
+      <section class="card">
+        <div class="card-title">Норма рабочего времени</div>
+        <div class="norm-row">
+          <input
+            type="range"
+            class="norm-range"
+            v-model.number="normHours"
+            min="1"
+            max="24"
+            step="0.5"
+            title="Норма рабочего времени за день: сколько часов переработки считается одним дополнительным днём"
+          />
+          <span class="norm-value">{{ normLabel }}</span>
+        </div>
+        <div class="hint">
+          Норма рабочего времени за день. Столько часов переработки = один дополнительный день: на столько частей делится полоска на главном экране, и после каждого дня она заполняется заново.
+        </div>
       </section>
 
       <section class="card">
@@ -209,7 +236,29 @@ onMounted(loadSettings)
         title="Сохранить настройки в аккаунте"
       >{{ saving ? 'Сохраняю…' : saveText }}</button>
 
-      <p class="foot-note">Период и время хранятся в аккаунте — на всех устройствах будут одинаковыми. Анимация и звук — только на этом устройстве.</p>
+      <p class="foot-note">Период, время, норма и комментарий хранятся в аккаунте — на всех устройствах будут одинаковыми. Анимация и звук — только на этом устройстве.</p>
+
+      <section class="card install-card">
+        <div class="install-head">
+          <span class="install-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+              <rect x="5" y="2" width="14" height="20" rx="3"/>
+              <line x1="12" y1="18" x2="12" y2="18"/>
+            </svg>
+          </span>
+          <span class="install-title">Как добавить на домашний экран</span>
+        </div>
+
+        <div class="install-item">
+          <span class="install-badge">iOS</span>
+          <p class="install-text">В Safari нажмите <b>«Поделиться»</b> → <b>«Добавить на домашний экран»</b> → <b>«Добавить»</b></p>
+        </div>
+
+        <div class="install-item">
+          <span class="install-badge">Android</span>
+          <p class="install-text">В Chrome откройте меню <b>⋮</b> → <b>«Добавить на экран»</b> (или «Установить приложение») → <b>«Добавить»</b></p>
+        </div>
+      </section>
     </template>
   </div>
 </template>
@@ -458,5 +507,104 @@ input:focus {
   .toggle-title {
     font-size: 14px;
   }
+}
+
+.norm-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.norm-range {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #bfdbfe, #2563eb);
+  outline: none;
+}
+
+.norm-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #2563eb;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35);
+  cursor: pointer;
+}
+
+.norm-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #2563eb;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35);
+  cursor: pointer;
+}
+
+.norm-value {
+  min-width: 54px;
+  text-align: right;
+  font-size: 17px;
+  font-weight: 800;
+  color: #2563eb;
+  font-variant-numeric: tabular-nums;
+}
+
+/* блок установки на телефон */
+.install-card {
+  margin-top: 4px;
+}
+
+.install-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.install-icon {
+  color: #2563eb;
+  display: flex;
+}
+
+.install-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.install-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 8px;
+}
+
+.install-badge {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: #2563eb;
+  background: #eff4ff;
+  border-radius: 6px;
+  padding: 3px 7px;
+  margin-top: 1px;
+}
+
+.install-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #4b5563;
+}
+
+.install-text b {
+  color: #1f2937;
 }
 </style>
